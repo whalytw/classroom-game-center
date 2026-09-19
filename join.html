@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>加入遊戲房間</title><link rel="stylesheet" href="./styles.css">
+</head>
+<body><div class="shell"><section class="card" style="max-width:680px;margin:50px auto">
+<h1>加入遊戲房間</h1><div id="status" class="notice info">正在驗證房間通行證…</div>
+<div id="roomInfo" class="hidden"><h2 id="gameName"></h2><p>房間：<b id="roomCode"></b></p><p id="timeInfo" class="muted"></p><div id="seatBox" class="hidden"><label for="seat">座號</label><input id="seat" type="number" min="1" max="99" inputmode="numeric" placeholder="例如 12"><button id="continueBtn" class="btn primary" style="margin-top:12px">繼續</button></div></div>
+</section></div><script type="module" src="./join.js"></script></body></html>

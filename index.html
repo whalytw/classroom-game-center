@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Classroom Game Center</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="brand">
+        <h1>Classroom Game Center</h1>
+        <p>教室互動遊戲統一管理中心</p>
+      </div>
+      <div class="userbar">
+        <span id="userLabel" class="muted">尚未登入</span>
+        <button id="loginBtn" class="btn primary">使用 Google 登入</button>
+        <button id="logoutBtn" class="btn ghost hidden">登出</button>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>管理員狀態</h2>
+      <div id="authMessage" class="notice info">請先使用你的 Google 帳號登入。第一次登入後，這裡會顯示 Firebase UID。</div>
+      <div id="uidPanel" class="hidden">
+        <div class="muted">你的 Firebase UID</div>
+        <div id="uidValue" class="code"></div>
+        <div class="actions"><button id="copyUidBtn" class="btn">複製 UID</button></div>
+      </div>
+    </section>
+
+    <section id="createSection" class="card hidden">
+      <h2>建立遊戲房間</h2>
+      <div class="grid">
+        <div class="field wide">
+          <label for="gameSelect">遊戲</label>
+          <select id="gameSelect"></select>
+        </div>
+        <div class="field wide">
+          <label for="startMode">開放時間</label>
+          <select id="startMode">
+            <option value="now">立即開放</option>
+            <option value="custom">指定開始時間</option>
+          </select>
+        </div>
+        <div id="startTimeField" class="field wide hidden">
+          <label for="startTime">開始時間</label>
+          <input id="startTime" type="datetime-local">
+        </div>
+        <div class="field wide">
+          <label for="duration">有效時間</label>
+          <select id="duration">
+            <option value="1">1 小時</option>
+            <option value="3">3 小時</option>
+            <option value="6">6 小時</option>
+            <option value="12">12 小時</option>
+            <option value="24">24 小時</option>
+            <option value="27" selected>27 小時</option>
+            <option value="48">48 小時</option>
+            <option value="custom">自訂到期時間</option>
+          </select>
+        </div>
+        <div id="customExpiryField" class="field wide hidden">
+          <label for="customExpiry">自訂到期時間</label>
+          <input id="customExpiry" type="datetime-local">
+        </div>
+        <div class="field full">
+          <button id="createRoomBtn" class="btn primary">建立房間</button>
+        </div>
+      </div>
+      <div id="createMessage"></div>
+    </section>
+
+    <section id="roomsSection" class="card hidden">
+      <div class="room-head">
+        <h2>目前房間</h2>
+        <button id="refreshBtn" class="btn ghost">重新整理</button>
+      </div>
+      <div id="rooms" class="rooms"><div class="muted">尚無房間。</div></div>
+    </section>
+
+    <footer>此網站預計部署於 GitHub Pages；Firebase 負責登入與房間即時資料。</footer>
+  </div>
+  <script type="module" src="./admin.js"></script>
+</body>
+</html>

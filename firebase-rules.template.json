@@ -1,0 +1,31 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "admins": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && root.child('admins').child(auth.uid).val() === true",
+        ".validate": "newData.val() === true || !newData.exists()"
+      }
+    },
+    "rooms": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).val() === true",
+      "$roomCode": {
+        ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+      }
+    },
+    "joinPasses": {
+      "$token": {
+        ".read": "auth != null && data.exists() && data.child('status').val() === 'active' && now < data.child('expiresAt').val()",
+        ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+      }
+    },
+    "hostPasses": {
+      "$token": {
+        ".read": "auth != null && data.exists() && data.child('status').val() === 'active' && now < data.child('expiresAt').val()",
+        ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+      }
+    }
+  }
+}
