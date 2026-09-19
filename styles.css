@@ -364,3 +364,59 @@ footer { color:var(--muted); font-size:.9rem; padding:8px 0 30px; }
   .player-roster-row { grid-template-columns:minmax(0,1fr) 30px auto; }
   .player-roster-row .release-seat { grid-column:1/-1; justify-self:end; }
 }
+
+
+/* ===== v2.6 全螢幕控制列與學生名單捲動 ===== */
+.fullscreen-game-controls {
+  display:none;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:5px;
+  margin:7px 0 8px;
+}
+.fullscreen-game-controls .btn { width:100%; min-width:0; }
+
+/* 學生名單永遠依 host.js 的座號排序呈現；人數多時只捲動名單本身。 */
+.player-roster {
+  max-height:360px;
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding-right:3px;
+  scrollbar-gutter:stable;
+}
+
+.game-stage:fullscreen .score-panel,
+.game-stage:-webkit-full-screen .score-panel {
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.game-stage:fullscreen .fullscreen-game-controls,
+.game-stage:-webkit-full-screen .fullscreen-game-controls {
+  display:grid;
+}
+.game-stage:fullscreen .leaderboard,
+.game-stage:-webkit-full-screen .leaderboard {
+  max-height:31%;
+  overflow-y:auto;
+  flex:0 1 auto;
+  padding-right:3px;
+  scrollbar-gutter:stable;
+}
+.game-stage:fullscreen .player-roster,
+.game-stage:-webkit-full-screen .player-roster {
+  flex:1 1 auto;
+  min-height:110px;
+  max-height:none;
+  overflow-y:auto;
+}
+.game-stage:fullscreen .score-panel > hr,
+.game-stage:-webkit-full-screen .score-panel > hr { flex:0 0 auto; }
+
+.game-stage.theme-tech .fullscreen-game-controls .btn.primary {
+  background:#0f6f92;
+  color:#eaffff;
+}
+.game-stage.theme-tech .fullscreen-game-controls .btn.success {
+  background:#0f513f;
+  color:#caffea;
+}

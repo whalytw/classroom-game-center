@@ -234,6 +234,12 @@ function bindControls() {
   $('pauseBtn').addEventListener('click', pauseRound);
   $('resumeBtn').addEventListener('click', resumeRound);
   $('fullscreenBtn').addEventListener('click', toggleGameFullscreen);
+  $('fsStartBtn').addEventListener('click', () => startRound(false));
+  $('fsPauseResumeBtn').addEventListener('click', () => {
+    if (round.status === 'running') pauseRound();
+    else if (round.status === 'paused') resumeRound();
+  });
+  $('fsStopBtn').addEventListener('click', stopRound);
   $('crosshairToggle').addEventListener('change', renderCrosshairs);
   $('selectAllBtn').addEventListener('click', () => setAllPlayersActive(true));
   $('selectNoneBtn').addEventListener('click', () => setAllPlayersActive(false));
@@ -282,7 +288,7 @@ function subscribePassValidity() {
 }
 
 function disableGameControls() {
-  ['startBtn','restartBtn','pauseBtn','resumeBtn','selectAllBtn','selectNoneBtn','resetAllScoresBtn'].forEach(id => $(id).disabled = true);
+  ['startBtn','restartBtn','pauseBtn','resumeBtn','fsStartBtn','fsPauseResumeBtn','fsStopBtn','selectAllBtn','selectNoneBtn','resetAllScoresBtn'].forEach(id => $(id).disabled = true);
 }
 
 function subscribePlayers() {
@@ -423,6 +429,21 @@ async function resumeRound() {
   updateControlState();
   ensureTargetCounts();
   engineTimer = setInterval(engineTick, 120);
+}
+
+async function stopRound() {
+  if (!['running','paused'].includes(round.status)) return;
+  round.status = 'finished';
+  round.remainingMs = 0;
+  stopEngine(false);
+  clearTargets();
+  clearEffects();
+  await writeGameState();
+  $('roundMessage').textContent = '本局已由老師停止；分數與排行榜已保留。';
+  $('startOverlay').classList.remove('hidden');
+  $('startOverlay').querySelector('strong').textContent = '本局已停止';
+  $('startOverlay').querySelector('span').textContent = '可調整參賽學生、分數或設定後，再開始下一局。';
+  updateControlState();
 }
 
 function stopEngine(updateRemaining = true) {
@@ -705,18 +726,25 @@ function startUiClock() {
 function updateControlState() {
   const running = round.status === 'running';
   const paused = round.status === 'paused';
+  const inRound = running || paused;
   $('pauseBtn').disabled = !running;
   $('resumeBtn').classList.toggle('hidden', !paused);
-  $('startBtn').disabled = running || paused;
+  $('startBtn').disabled = inRound;
+  $('fsStartBtn').disabled = inRound;
+  $('fsPauseResumeBtn').disabled = !inRound;
+  $('fsPauseResumeBtn').textContent = paused ? '繼續' : '暫停';
+  $('fsPauseResumeBtn').classList.toggle('success', paused);
+  $('fsPauseResumeBtn').classList.toggle('ghost', !paused);
+  $('fsStopBtn').disabled = !inRound;
   ['gameDurationSelect','targetLifetimeSelect','rationalCountSelect','irrationalCountSelect']
-    .forEach(id => $(id).disabled = running || paused);
+    .forEach(id => $(id).disabled = inRound);
   $('gameStatusBadge').className = `badge ${running ? 'active' : paused ? 'scheduled' : 'closed'}`;
   $('gameStatusBadge').textContent = running ? '進行中' : paused ? '暫停' : round.status === 'finished' ? '已結束' : '等待';
   updateFieldState();
 }
 
 function updateFieldState() {
-  $('fieldState').textContent = round.status === 'running' ? `剩餘 ${Math.ceil(round.remainingMs/1000)} 秒` : round.status === 'paused' ? '暫停' : round.status === 'finished' ? '時間到' : '等待開始';
+  $('fieldState').textContent = round.status === 'running' ? `剩餘 ${Math.ceil(round.remainingMs/1000)} 秒` : round.status === 'paused' ? '暫停' : round.status === 'finished' ? '已結束' : '等待開始';
 }
 
 boot();
