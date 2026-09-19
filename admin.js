@@ -332,5 +332,7 @@ async function closeRoom(room) {
   updates[`rooms/${room.roomCode}/closedAt`] = Date.now();
   updates[`joinPasses/${room.joinToken}/status`] = 'closed';
   updates[`hostPasses/${room.hostToken}/status`] = 'closed';
+  updates[`gameState/${room.roomCode}/status`] = 'closed';
+  updates[`gameState/${room.roomCode}/updatedAt`] = Date.now();
   await update(ref(db), updates);
 }

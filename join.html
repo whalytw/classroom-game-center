@@ -1,10 +1,61 @@
 <!doctype html>
 <html lang="zh-Hant">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>加入遊戲房間</title><link rel="stylesheet" href="./styles.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>加入遊戲｜Classroom Game Center</title>
+  <link rel="stylesheet" href="./styles.css">
 </head>
-<body><div class="shell"><section class="card" style="max-width:680px;margin:50px auto">
-<h1>加入遊戲房間</h1><div id="status" class="notice info">正在驗證房間通行證…</div>
-<div id="roomInfo" class="hidden"><h2 id="gameName"></h2><p>房間：<b id="roomCode"></b></p><p id="timeInfo" class="muted"></p><div id="seatBox" class="hidden"><label for="seat">座號</label><input id="seat" type="number" min="1" max="99" inputmode="numeric" placeholder="例如 12"><button id="continueBtn" class="btn primary" style="margin-top:12px">繼續</button></div></div>
-</section></div><script type="module" src="./join.js"></script></body></html>
+<body class="controller-page">
+  <div class="controller-shell">
+    <section class="card controller-card">
+      <div class="eyebrow">Classroom Game Center</div>
+      <h1 id="pageTitle">加入遊戲房間</h1>
+      <div id="status" class="notice info">正在驗證房間通行證…</div>
+
+      <div id="roomInfo" class="hidden">
+        <div class="controller-room-meta">
+          <strong id="gameName"></strong>
+          <span>房間 <b id="roomCode"></b></span>
+          <span id="timeInfo" class="muted"></span>
+        </div>
+
+        <div id="seatBox" class="hidden seat-box">
+          <label for="seat">座號</label>
+          <input id="seat" type="number" min="1" max="99" inputmode="numeric" placeholder="例如 12">
+          <button id="continueBtn" class="btn primary controller-wide-btn">加入遊戲</button>
+        </div>
+
+        <div id="controller" class="hidden">
+          <div class="controller-score-row">
+            <div><span>座號</span><strong id="seatLabel">—</strong></div>
+            <div><span>分數</span><strong id="scoreLabel">0</strong></div>
+            <div><span>剩餘</span><strong id="timeLabel">60</strong></div>
+          </div>
+
+          <div id="gameMessage" class="notice info">等待老師開始遊戲。</div>
+
+          <div class="aim-title-row">
+            <strong>瞄準控制</strong>
+            <button id="centerBtn" class="btn ghost small-btn">準星置中</button>
+          </div>
+          <div id="aimPad" class="aim-pad" aria-label="拖曳控制準星">
+            <div id="aimDot" class="aim-dot"></div>
+            <div class="aim-hint">在此拖曳準星<br><small>請看前方大螢幕瞄準</small></div>
+          </div>
+
+          <div class="controller-actions">
+            <button id="tiltBtn" class="btn ghost">啟用手機傾斜</button>
+            <button id="fireBtn" class="fire-btn" disabled>
+              <span>FIRE</span>
+              <small id="cooldownLabel">等待遊戲</small>
+            </button>
+          </div>
+          <div id="controllerHint" class="muted controller-hint">每次射擊至少間隔 1 秒。手機只是控制器，請看大螢幕上的準星與目標。</div>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script type="module" src="./join.js"></script>
+</body>
+</html>

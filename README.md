@@ -1,28 +1,23 @@
-# Classroom Game Center v1
+# Classroom Game Center v2
 
-這是 GitHub Pages 靜態版管理中心，已填入 classroom-game-center 的 Firebase Web 設定。
+這是「共用管理中心 + 多遊戲房間」的第二版，第一款正式可玩遊戲為 **射擊畫面上的有理數**。
 
-## 目前功能
-- Google 登入管理中心
-- 登入後顯示 Firebase UID
-- 管理員權限確認
-- 建立房間：遊戲、立即/指定開始時間、1/3/6/12/24/27/48 小時或自訂到期
-- 產生 4 碼房間碼
-- 產生學生加入 Token、教師控制 Token
-- 產生學生 QR Code
-- 複製學生/教師網址
-- 延長房間 1/3/6/12/24/27/48 小時
-- 立即關閉房間
-- join.html：驗證學生通行證並輸入座號的測試入口
-- host.html：驗證教師控制通行證的測試入口
+## v2 新增
+- 教師控制頁直接成為大螢幕遊戲主機
+- 60 秒倒數
+- 有理數與無理數各維持 8–12 個
+- 每個目標存在 5 秒後自動消失
+- 隨機位置生成，避開畫面邊緣並盡量避免重疊
+- 學生手機輸入座號後變成光線槍控制器
+- 拖曳瞄準、準星置中、可選手機傾斜瞄準
+- 每次射擊至少間隔 1 秒（前端 + Firebase Rules）
+- 射中有理數 +1；射中無理數或空白不加分
+- 同一位玩家對同一個「當次生成的目標」只計分一次
+- 即時排行榜、玩家準星、射擊特效
+- 教師可開始、暫停、繼續、重新開始、全螢幕
 
-## 第一次部署後的流程
-1. 將整個資料夾上傳 GitHub Repository，開啟 GitHub Pages。
-2. Firebase Console > Authentication > 設定 > Authorized domains，加上 `你的GitHub帳號.github.io`。
-3. 開啟 GitHub Pages 管理中心，用你的 Google 帳號登入。
-4. 頁面會顯示 Firebase UID。把 UID 提供給 ChatGPT。
-5. 再到 Realtime Database 的資料頁手動建立 `admins/<你的UID> = true`，並把 `firebase-rules.template.json` 的規則貼到 Rules 後發布（ChatGPT 會逐步帶你完成）。
-6. 重新整理管理中心，房間管理功能就會自動開啟。
+## 重要：升級前必須更新 Firebase Rules
+將 `firebase-rules-v2.json` 全部內容貼到：
+Firebase Console → Realtime Database → 規則 → 發布。
 
-## 注意
-在 Firebase 仍是 Locked mode 時，Google 登入與 UID 顯示可以工作，但讀寫 Realtime Database 會被拒絕，這是正常現象。
+如果只更新 GitHub 檔案而沒有更新 Rules，手機會無法登記玩家或射擊。

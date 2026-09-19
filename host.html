@@ -1,2 +1,76 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>教師控制連結</title><link rel="stylesheet" href="./styles.css"></head>
-<body><div class="shell"><section class="card" style="max-width:680px;margin:50px auto"><h1>教師控制入口</h1><div id="status" class="notice info">正在驗證教師控制通行證…</div><div id="info" class="hidden"><h2 id="game"></h2><p>房間：<b id="code"></b></p><p id="time" class="muted"></p><p>這一版先確認教師控制連結可被驗證；各遊戲的開始、暫停、下一題與計分控制會接在這個入口。</p></div></section></div><script type="module" src="./host.js"></script></body></html>
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>射擊畫面上的有理數｜教師控制</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body class="game-host-page">
+  <div class="game-shell">
+    <header class="game-topbar">
+      <div>
+        <div class="eyebrow">Classroom Game Center</div>
+        <h1 id="gameTitle">正在載入遊戲…</h1>
+        <div class="host-subline">
+          房間 <b id="roomCode">—</b>
+          <span>｜</span>
+          <span id="hostStatus">驗證教師通行證中…</span>
+        </div>
+      </div>
+      <div class="host-metrics">
+        <div class="metric"><span>時間</span><strong id="timer">60</strong></div>
+        <div class="metric"><span>玩家</span><strong id="playerCount">0</strong></div>
+      </div>
+    </header>
+
+    <section id="fatalNotice" class="notice info">正在連接 Firebase…</section>
+
+    <section id="hostGame" class="hidden">
+      <div class="host-controls card compact-card">
+        <div class="actions no-margin">
+          <button id="startBtn" class="btn primary">開始 60 秒</button>
+          <button id="pauseBtn" class="btn ghost" disabled>暫停</button>
+          <button id="resumeBtn" class="btn success hidden">繼續</button>
+          <button id="restartBtn" class="btn ghost">重新開始</button>
+          <button id="fullscreenBtn" class="btn ghost">全螢幕</button>
+          <label class="toggle-label"><input id="crosshairToggle" type="checkbox" checked> 顯示玩家準星</label>
+        </div>
+        <div id="roundMessage" class="muted host-round-message">等待老師開始遊戲。</div>
+      </div>
+
+      <div class="game-layout">
+        <main>
+          <div id="gameField" class="game-field" aria-label="遊戲主畫面">
+            <div class="field-hud">
+              <span class="hud-pill rational-pill">射擊有理數 +1</span>
+              <span id="fieldState" class="hud-pill">等待開始</span>
+            </div>
+            <div id="targetsLayer" class="targets-layer"></div>
+            <div id="crosshairsLayer" class="crosshairs-layer"></div>
+            <div id="effectsLayer" class="effects-layer"></div>
+            <div id="startOverlay" class="game-overlay">
+              <div>
+                <strong>射擊畫面上的有理數</strong>
+                <span>每個數字停留 5 秒｜射擊間隔至少 1 秒｜60 秒挑戰</span>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <aside class="score-panel card compact-card">
+          <div class="score-head">
+            <h2>即時排行榜</h2>
+            <span id="gameStatusBadge" class="badge scheduled">等待</span>
+          </div>
+          <div id="leaderboard" class="leaderboard"><div class="muted">尚無玩家。</div></div>
+          <hr>
+          <div class="score-head"><h2>已加入玩家</h2><span id="joinedCount" class="muted">0 人</span></div>
+          <div id="playerList" class="player-list"><div class="muted">等待學生掃描 QR Code。</div></div>
+        </aside>
+      </div>
+    </section>
+  </div>
+  <script type="module" src="./host.js"></script>
+</body>
+</html>
