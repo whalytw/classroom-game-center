@@ -32,6 +32,7 @@ let lastTiltUpdate = 0;
 let tiltInvertX = false;
 let tiltInvertY = false;
 let sensorMode = 'yaw';
+let removedByTeacher = false;
 
 async function boot() {
   try {
@@ -87,6 +88,7 @@ async function joinGame() {
     $('controller').classList.remove('hidden');
     $('seatLabel').textContent = seat;
     bindController();
+    subscribeOwnAccess();
     subscribeParticipation();
     subscribeGame();
     subscribeScore();
@@ -96,6 +98,25 @@ async function joinGame() {
     $('status').textContent=message;
     $('continueBtn').disabled = false;
   }
+}
+
+
+function subscribeOwnAccess() {
+  onValue(ref(db, `playerAccess/${room}/${uid}`), snap => {
+    if (snap.exists() || removedByTeacher) return;
+    removedByTeacher = true;
+    isActivePlayer = false;
+    $('fireBtn').disabled = true;
+    $('controller').classList.add('hidden');
+    $('seatBox').classList.add('hidden');
+    $('status').className = 'notice error';
+    $('status').textContent = `座號 ${seat} 已由教師釋放。請重新掃描教室 QR Code，再輸入正確座號加入。`;
+    try {
+      const cleanUrl = new URL('./join.html', window.location.href);
+      cleanUrl.search = '';
+      history.replaceState({}, '', cleanUrl.href);
+    } catch {}
+  });
 }
 
 
@@ -130,6 +151,10 @@ function subscribeScore() {
 }
 
 function updateControllerState() {
+  if (removedByTeacher) {
+    $('fireBtn').disabled = true;
+    return;
+  }
   let remaining = Number(gameState.remainingMs ?? 60000);
   if (gameState.status === 'running' && Number.isFinite(gameState.endsAt)) remaining = Math.max(0, gameState.endsAt - Date.now());
   $('timeLabel').textContent = Math.ceil(remaining / 1000);

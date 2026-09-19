@@ -242,7 +242,7 @@ footer { color:var(--muted); font-size:.9rem; padding:8px 0 30px; }
 .tiny-btn { min-height:30px; padding:4px 7px; font-size:.72rem; border-radius:8px; }
 .player-roster { display:grid; gap:4px; }
 .player-roster-row {
-  display:grid; grid-template-columns:minmax(0,1fr) 34px auto; gap:6px; align-items:center;
+  display:grid; grid-template-columns:minmax(0,1fr) 34px auto auto; gap:6px; align-items:center;
   padding:5px 6px; border-radius:9px; border:1px solid var(--border); background:#f8fafc;
 }
 .player-roster-row.active { background:#eff6ff; border-color:#bfdbfe; }
@@ -284,4 +284,83 @@ footer { color:var(--muted); font-size:.9rem; padding:8px 0 30px; }
   .control-strip { align-items:stretch; }
   .host-setting.mini-setting { flex:1 1 46%; }
   .host-setting.mini-setting select { width:100%; }
+}
+
+
+/* ===== v2.5 配色與座號釋放 ===== */
+.theme-setting select { min-width:104px !important; }
+.player-roster-row .release-seat { white-space:nowrap; }
+
+.game-stage.theme-tech {
+  background:#030914;
+  color:#e8f7ff;
+  border-radius:16px;
+}
+.game-stage.theme-tech .game-field {
+  background:
+    radial-gradient(circle at 50% 42%, rgba(15,48,72,.88) 0, rgba(5,20,35,.96) 48%, #020812 100%);
+  border-color:#1d6a8c;
+  box-shadow:inset 0 0 50px rgba(0,184,255,.08);
+}
+.game-stage.theme-tech .number-target.rational,
+.game-stage.theme-tech .number-target.irrational {
+  background:#0a1a2b;
+  border-color:#66d9ff;
+  color:#f2fbff;
+  box-shadow:0 0 0 1px rgba(102,217,255,.12), 0 8px 24px rgba(0,0,0,.42), 0 0 16px rgba(44,190,255,.10);
+}
+.game-stage.theme-tech .hud-pill {
+  background:rgba(5,18,32,.88);
+  border-color:#246886;
+  color:#dff7ff;
+}
+.game-stage.theme-tech .rational-pill { color:#87ffd0; }
+.game-stage.theme-tech .game-overlay {
+  background:rgba(2,8,18,.86);
+  color:#f0f9ff;
+}
+.game-stage.theme-tech .game-overlay span { color:#9fc3d9; }
+.game-stage.theme-tech .score-panel {
+  background:#071321;
+  border-color:#1e5069;
+  color:#e8f7ff;
+  box-shadow:none;
+}
+.game-stage.theme-tech .score-panel .muted { color:#91adbf; }
+.game-stage.theme-tech .score-panel hr { border-color:#17394d; }
+.game-stage.theme-tech .leader-row {
+  background:#0c2032;
+  color:#e8f7ff;
+}
+.game-stage.theme-tech .leader-row.top-rank {
+  background:#152d3d;
+  border:1px solid #2c7897;
+}
+.game-stage.theme-tech .player-roster-row {
+  background:#0b1b2a;
+  border-color:#183e54;
+  color:#e8f7ff;
+}
+.game-stage.theme-tech .player-roster-row.active {
+  background:#102c40;
+  border-color:#38bdf8;
+}
+.game-stage.theme-tech .btn.ghost {
+  color:#e8f7ff;
+  border-color:#31576d;
+  background:#0b1c2b;
+}
+.game-stage.theme-tech .btn.danger {
+  background:#421a25;
+  color:#ffdce3;
+}
+.game-stage.theme-tech .badge.active { background:#0f3b32; color:#8dffd2; }
+.game-stage.theme-tech .badge.scheduled { background:#112e46; color:#9bdcff; }
+.game-stage.theme-tech .badge.closed { background:#172332; color:#a8bbca; }
+.game-stage.theme-tech:fullscreen,
+.game-stage.theme-tech:-webkit-full-screen { background:#020812; }
+
+@media (max-width:700px) {
+  .player-roster-row { grid-template-columns:minmax(0,1fr) 30px auto; }
+  .player-roster-row .release-seat { grid-column:1/-1; justify-self:end; }
 }

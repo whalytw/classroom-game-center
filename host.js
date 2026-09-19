@@ -21,6 +21,7 @@ let gameDurationSeconds = DEFAULT_GAME_SECONDS;
 let targetLifetimeMs = DEFAULT_TARGET_SECONDS * 1000;
 let rationalTargetCount = DEFAULT_RATIONAL_COUNT;
 let irrationalTargetCount = DEFAULT_IRRATIONAL_COUNT;
+let visualTheme = 'classic';
 
 function buildRationalPool() {
   const out = [];
@@ -28,12 +29,13 @@ function buildRationalPool() {
   const add = value => {
     if (!seen.has(value)) { seen.add(value); out.push(value); }
   };
-  for (let n = -20; n <= 19; n++) add(String(n).replace('-', '−'));
-  for (let n = 20; n <= 59; n++) add(`${n}.25`);
-  for (let n = 2; n <= 41; n++) add(`1/${n}`);
-  for (let n = 60; n <= 99; n++) add(`√${n * n}`);
-  for (let n = 1; n <= 20; n++) add(`−${n}/${n + 1}`);
-  for (let n = 1; n <= 20; n++) {
+  // 固定 200 個有理數題目；完全平方根最大限制為 √1024 = √(32²)。
+  for (let n = -20; n <= 19; n++) add(String(n).replace('-', '−'));           // 40
+  for (let n = 20; n <= 69; n++) add(`${n}.25`);                              // +50 = 90
+  for (let n = 2; n <= 41; n++) add(`1/${n}`);                                // +40 = 130
+  for (let n = 2; n <= 32; n++) add(`√${n * n}`);                             // +31 = 161，最大 √1024
+  for (let n = 1; n <= 20; n++) add(`−${n}/${n + 1}`);                        // +20 = 181
+  for (let n = 1; n <= 19; n++) {                                             // +19 = 200
     const pair = String(n).padStart(2, '0');
     add(`2.${pair}${pair}${pair}…`);
   }
@@ -166,9 +168,21 @@ function initGameSettings() {
     }
   }
   $('gameDurationSelect').value = String(DEFAULT_GAME_SECONDS);
+  try { visualTheme = localStorage.getItem('classroomGameVisualTheme') === 'tech' ? 'tech' : 'classic'; } catch {}
+  $('themeSelect').value = visualTheme;
+  applyVisualTheme();
   applySelectedSettings();
   ['gameDurationSelect','targetLifetimeSelect','rationalCountSelect','irrationalCountSelect']
     .forEach(id => $(id).addEventListener('change', applySelectedSettings));
+  $('themeSelect').addEventListener('change', () => {
+    visualTheme = $('themeSelect').value === 'tech' ? 'tech' : 'classic';
+    try { localStorage.setItem('classroomGameVisualTheme', visualTheme); } catch {}
+    applyVisualTheme();
+  });
+}
+
+function applyVisualTheme() {
+  $('gameStage').classList.toggle('theme-tech', visualTheme === 'tech');
 }
 
 function applySelectedSettings() {
@@ -345,6 +359,11 @@ function subscribeGameState() {
       irrationalTargetCount = state.irrationalTargetCount;
       $('irrationalCountSelect').value = String(irrationalTargetCount);
     }
+    if (state.visualTheme === 'tech' || state.visualTheme === 'classic') {
+      visualTheme = state.visualTheme;
+      $('themeSelect').value = visualTheme;
+      applyVisualTheme();
+    }
     applySelectedSettings();
     if (['waiting','paused','finished','closed'].includes(state.status)) {
       round.status = state.status;
@@ -437,6 +456,7 @@ async function writeGameState() {
     targetLifetimeMs,
     rationalTargetCount,
     irrationalTargetCount,
+    visualTheme,
     controllerUid: hostUid,
     updatedAt: Date.now()
   });
@@ -620,9 +640,11 @@ function renderPlayerRoster() {
     row.innerHTML = `
       <label class="player-check"><input type="checkbox" ${isPlayerActive(uid) ? 'checked' : ''}><span>${safeText(p.seat)}號</span></label>
       <strong>${Number(scores[uid]?.score || 0)}</strong>
-      <button class="btn ghost tiny-btn reset-one">歸零</button>`;
+      <button class="btn ghost tiny-btn reset-one">歸零</button>
+      <button class="btn danger tiny-btn release-seat">釋放座號</button>`;
     row.querySelector('input').addEventListener('change', e => setPlayerActive(uid, e.target.checked));
     row.querySelector('.reset-one').addEventListener('click', () => resetPlayerScore(uid));
+    row.querySelector('.release-seat').addEventListener('click', () => releasePlayerSeat(uid));
     roster.appendChild(row);
   }
 }
@@ -634,6 +656,23 @@ function renderLeaderboard() {
   arr.sort((a,b) => b.score - a.score || a.seat - b.seat);
   $('leaderboard').innerHTML = arr.length ? arr.slice(0,27).map((p,i) => `
     <div class="leader-row ${i < 3 ? 'top-rank' : ''}"><span>${i+1}</span><b>${safeText(p.seat)}號</b><strong>${p.score}</strong></div>`).join('') : '<div class="muted">尚未勾選本局參加學生。</div>';
+}
+
+async function releasePlayerSeat(uid) {
+  const p = players[uid];
+  if (!p) return;
+  const seatNumber = Number(p.seat);
+  if (!confirm(`確定釋放 ${seatNumber} 號座位？目前使用這個座號的手機會被移除，必須重新掃描 QR Code 才能再次加入。`)) return;
+  const writes = {};
+  writes[`seatClaims/${roomCode}/${seatNumber}`] = null;
+  writes[`playerAccess/${roomCode}/${uid}`] = null;
+  writes[`activePlayers/${roomCode}/${uid}`] = null;
+  writes[`playerAim/${roomCode}/${uid}`] = null;
+  writes[`playerShots/${roomCode}/${uid}`] = null;
+  writes[`scores/${roomCode}/${uid}`] = null;
+  await update(ref(db), writes);
+  shotSeqSeen.delete(uid);
+  hitTargetsByPlayer.delete(uid);
 }
 
 async function resetPlayerScore(uid) {
