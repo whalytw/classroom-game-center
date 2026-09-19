@@ -5,32 +5,32 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>射擊畫面上的有理數｜教師控制</title>
   <link rel="stylesheet" href="./styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 </head>
 <body class="game-host-page">
   <div class="game-shell">
-    <header class="game-topbar">
-      <div>
+    <header class="game-topbar game-topbar-compact">
+      <div class="host-title-compact">
         <div class="eyebrow">Classroom Game Center</div>
-        <h1 id="gameTitle">正在載入遊戲…</h1>
-        <div class="host-subline">
-          房間 <b id="roomCode">—</b>
-          <span>｜</span>
-          <span id="hostStatus">驗證教師通行證中…</span>
+        <div class="host-title-line">
+          <h1 id="gameTitle">正在載入遊戲…</h1>
+          <span class="host-room-pill">房間 <b id="roomCode">—</b></span>
+          <span id="hostStatus" class="host-status-pill">驗證中…</span>
         </div>
       </div>
-      <div class="host-metrics">
-        <div class="metric"><span>時間</span><strong id="timer">60</strong></div>
-        <div class="metric"><span>玩家</span><strong id="playerCount">0</strong></div>
+      <div class="host-metrics-inline">
+        <span>時間 <strong id="timer">60</strong></span>
+        <span>本局/加入 <strong id="playerCount">0/0</strong></span>
       </div>
     </header>
 
-    <section id="fatalNotice" class="notice info">正在連接 Firebase…</section>
+    <section id="fatalNotice" class="notice info host-connection-notice">正在連接 Firebase…</section>
 
     <section id="hostGame" class="hidden">
-      <div class="host-controls card compact-card">
-        <div class="host-settings-row">
-          <label class="host-setting">
-            <span>每局時間</span>
+      <div class="host-controls card compact-card ultra-compact-controls">
+        <div class="control-strip">
+          <label class="host-setting mini-setting">
+            <span>每局</span>
             <select id="gameDurationSelect">
               <option value="60" selected>60 秒</option>
               <option value="90">90 秒</option>
@@ -38,24 +38,31 @@
               <option value="150">150 秒</option>
             </select>
           </label>
-          <label class="host-setting">
-            <span>數字停留</span>
+          <label class="host-setting mini-setting">
+            <span>停留</span>
             <select id="targetLifetimeSelect"></select>
           </label>
-        </div>
-        <div class="actions no-margin">
+          <label class="host-setting mini-setting">
+            <span>有理數</span>
+            <select id="rationalCountSelect"></select>
+          </label>
+          <label class="host-setting mini-setting">
+            <span>無理數</span>
+            <select id="irrationalCountSelect"></select>
+          </label>
           <button id="startBtn" class="btn primary">開始 60 秒</button>
           <button id="pauseBtn" class="btn ghost" disabled>暫停</button>
           <button id="resumeBtn" class="btn success hidden">繼續</button>
           <button id="restartBtn" class="btn ghost">重新開始</button>
-          <button id="fullscreenBtn" class="btn ghost">全螢幕</button>
-          <label class="toggle-label"><input id="crosshairToggle" type="checkbox" checked> 顯示玩家準星</label>
+          <button id="fullscreenBtn" class="btn ghost">遊戲全螢幕</button>
+          <button id="qrBtn" class="btn ghost">學生 QR Code</button>
+          <label class="toggle-label"><input id="crosshairToggle" type="checkbox" checked> 顯示準星</label>
         </div>
         <div id="roundMessage" class="muted host-round-message">等待老師開始遊戲。</div>
       </div>
 
-      <div class="game-layout">
-        <main>
+      <div id="gameStage" class="game-stage">
+        <main class="game-main-column">
           <div id="gameField" class="game-field" aria-label="遊戲主畫面">
             <div class="field-hud">
               <span class="hud-pill rational-pill">射擊有理數 +1</span>
@@ -67,7 +74,7 @@
             <div id="startOverlay" class="game-overlay">
               <div>
                 <strong>射擊畫面上的有理數</strong>
-                <span id="gameRuleSummary">每個數字停留 8 秒｜射擊間隔至少 1 秒｜60 秒挑戰</span>
+                <span id="gameRuleSummary">每個數字停留 8 秒｜有理數 8 個｜無理數 8 個｜60 秒挑戰</span>
               </div>
             </div>
           </div>
@@ -78,14 +85,42 @@
             <h2>即時排行榜</h2>
             <span id="gameStatusBadge" class="badge scheduled">等待</span>
           </div>
-          <div id="leaderboard" class="leaderboard"><div class="muted">尚無玩家。</div></div>
+          <div id="leaderboard" class="leaderboard"><div class="muted">尚未勾選本局參加學生。</div></div>
           <hr>
-          <div class="score-head"><h2>已加入玩家</h2><span id="joinedCount" class="muted">0 人</span></div>
-          <div id="playerList" class="player-list"><div class="muted">等待學生掃描 QR Code。</div></div>
+          <div class="score-head">
+            <h2>學生名單</h2>
+            <span id="joinedCount" class="muted">0 人</span>
+          </div>
+          <div class="player-control-toolbar">
+            <span id="activeCount" class="muted">本局 0 人</span>
+            <div class="player-control-actions">
+              <button id="selectAllBtn" class="btn ghost tiny-btn">全選</button>
+              <button id="selectNoneBtn" class="btn ghost tiny-btn">全不選</button>
+              <button id="resetAllScoresBtn" class="btn ghost tiny-btn">全部歸零</button>
+            </div>
+          </div>
+          <div id="playerRoster" class="player-roster"><div class="muted">等待學生掃描 QR Code。</div></div>
         </aside>
       </div>
     </section>
   </div>
+
+  <dialog id="qrDialog" class="qr-dialog">
+    <div class="qr-dialog-head">
+      <div>
+        <div class="eyebrow">學生加入</div>
+        <h2>掃描 QR Code 加入房間 <span id="qrRoomCode">—</span></h2>
+      </div>
+      <button id="closeQrBtn" class="btn ghost">關閉</button>
+    </div>
+    <div id="hostQr" class="host-qr"></div>
+    <div class="linkrow qr-link-row">
+      <input id="studentJoinUrl" readonly>
+      <button id="copyJoinUrlBtn" class="btn ghost">複製網址</button>
+    </div>
+    <div id="qrHint" class="muted">學生掃描後輸入座號即可加入。</div>
+  </dialog>
+
   <script type="module" src="./host.js"></script>
 </body>
 </html>

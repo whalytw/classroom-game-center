@@ -47,6 +47,7 @@ let roomsUnsub = null;
 let historyUnsub = null;
 const archivingRooms = new Set();
 const pruningHistory = new Set();
+const hostPassBackfilled = new Set();
 
 for (const game of games.filter(g => g.enabled)) {
   const option = document.createElement('option');
@@ -244,7 +245,7 @@ createRoomBtn.addEventListener('click', async () => {
     const updates = {};
     updates[`rooms/${roomCode}`] = roomData;
     updates[`joinPasses/${joinToken}`] = passBase;
-    updates[`hostPasses/${hostToken}`] = passBase;
+    updates[`hostPasses/${hostToken}`] = { ...passBase, joinToken };
     await update(ref(db), updates);
     createMessage.innerHTML = `<div class="notice ok">房間 <b>${roomCode}</b> 已建立。</div>`;
   } catch (err) {
@@ -281,6 +282,7 @@ function subscribeRooms(force = false) {
         archiveAndCleanupRoom(room, reason, { silent: true }).catch(() => {});
       } else {
         liveRooms.push(room);
+        ensureHostPassJoinToken(room).catch(() => {});
       }
     }
     renderRooms(liveRooms);
@@ -311,6 +313,18 @@ function subscribeHistory(force = false) {
   }, err => {
     historyRooms.innerHTML = `<div class="notice error">讀取歷史房間失敗：${safeText(err.message)}</div>`;
   });
+}
+
+
+async function ensureHostPassJoinToken(room) {
+  if (!room?.hostToken || !room?.joinToken || hostPassBackfilled.has(room.hostToken)) return;
+  hostPassBackfilled.add(room.hostToken);
+  try {
+    await update(ref(db, `hostPasses/${room.hostToken}`), { joinToken: room.joinToken });
+  } catch (err) {
+    hostPassBackfilled.delete(room.hostToken);
+    throw err;
+  }
 }
 
 function renderRooms(rooms) {
@@ -434,6 +448,7 @@ async function archiveAndCleanupRoom(room, reason = 'closed', options = {}) {
     updates[`playerAccess/${room.roomCode}`] = null;
     updates[`playerAim/${room.roomCode}`] = null;
     updates[`playerShots/${room.roomCode}`] = null;
+    updates[`activePlayers/${room.roomCode}`] = null;
     updates[`gameState/${room.roomCode}`] = null;
     updates[`scores/${room.roomCode}`] = null;
     await update(ref(db), updates);

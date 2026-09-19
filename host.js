@@ -13,45 +13,101 @@ const token = new URLSearchParams(location.search).get('t');
 
 const DEFAULT_GAME_SECONDS = 60;
 const DEFAULT_TARGET_SECONDS = 8;
-let gameDurationSeconds = DEFAULT_GAME_SECONDS;
-let targetLifetimeMs = DEFAULT_TARGET_SECONDS * 1000;
-const MIN_TARGETS = 8;
-const MAX_TARGETS = 12;
+const DEFAULT_RATIONAL_COUNT = 8;
+const DEFAULT_IRRATIONAL_COUNT = 8;
 const HIT_RADIUS_PX = 58;
 
-const rationalPool = [
-  '−7','0','12','3/4','−5/2','0.25','−1.6','2.75','0.125','√49','−√81','14/7',
-  '22/11','1/3','−7/8','4.2','0.04','100/25','−9/3','√0.25','2.333…','0.121212…',
-  '5/10','−0.75','16/4','√100','1.05','−12/6','7/20','0.875','−2.4','45/9'
-];
-const irrationalPool = [
-  '√2','√3','√5','√7','√10','√11','√13','√17','π','−π','π/2','2π','1+√2','3−√5',
-  '√8','√12','√18','√20','√24','√27','√50','e','√6/2','π+1','√15','√19','3π','√21','√30','2−√3'
-];
+let gameDurationSeconds = DEFAULT_GAME_SECONDS;
+let targetLifetimeMs = DEFAULT_TARGET_SECONDS * 1000;
+let rationalTargetCount = DEFAULT_RATIONAL_COUNT;
+let irrationalTargetCount = DEFAULT_IRRATIONAL_COUNT;
+
+function buildRationalPool() {
+  const out = [];
+  const seen = new Set();
+  const add = value => {
+    if (!seen.has(value)) { seen.add(value); out.push(value); }
+  };
+  for (let n = -20; n <= 19; n++) add(String(n).replace('-', '−'));
+  for (let n = 20; n <= 59; n++) add(`${n}.25`);
+  for (let n = 2; n <= 41; n++) add(`1/${n}`);
+  for (let n = 60; n <= 99; n++) add(`√${n * n}`);
+  for (let n = 1; n <= 20; n++) add(`−${n}/${n + 1}`);
+  for (let n = 1; n <= 20; n++) {
+    const pair = String(n).padStart(2, '0');
+    add(`2.${pair}${pair}${pair}…`);
+  }
+  return out.slice(0, 200);
+}
+
+function buildIrrationalPool() {
+  const out = [];
+  const nonSquares = [];
+  for (let n = 2; nonSquares.length < 160; n++) {
+    if (!Number.isInteger(Math.sqrt(n))) nonSquares.push(n);
+  }
+  for (let i = 0; i < 100; i++) out.push(`√${nonSquares[i]}`);
+  for (let i = 100; i < 140; i++) out.push(`${i - 99}+√${nonSquares[i]}`);
+  for (let k = 1; k <= 20; k++) out.push(k === 1 ? 'π+1' : `π+${k}`);
+  for (let k = 1; k <= 20; k++) out.push(k === 1 ? 'e+1' : `e+${k}`);
+  for (let i = 140; i < 160; i++) out.push(`√${nonSquares[i]}/2`);
+  return out.slice(0, 200);
+}
+
+const rationalPool = buildRationalPool();
+const irrationalPool = buildIrrationalPool();
+let rationalBag = [];
+let irrationalBag = [];
 
 let pass = null;
 let roomCode = null;
 let hostUid = null;
 let players = {};
+let activePlayers = {};
 let scores = {};
 let aims = {};
 let targets = new Map();
-let desiredR = randInt(MIN_TARGETS, MAX_TARGETS);
-let desiredI = randInt(MIN_TARGETS, MAX_TARGETS);
 let round = {
   status: 'waiting', roundId: null, startedAt: 0, endsAt: 0, remainingMs: DEFAULT_GAME_SECONDS * 1000
 };
 let engineTimer = null;
 let uiTimer = null;
-let desiredTimer = null;
 let shotSeqSeen = new Map();
 let hitTargetsByPlayer = new Map();
 
 function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function safeText(s) { return String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
-function setFatal(type, text) { $('fatalNotice').className = `notice ${type}`; $('fatalNotice').textContent = text; }
+function setFatal(type, text) { $('fatalNotice').className = `notice ${type} host-connection-notice`; $('fatalNotice').textContent = text; }
 function activeHostPath() { return `roomHosts/${roomCode}/${hostUid}`; }
+function isPlayerActive(uid) { return activePlayers[uid] === true; }
+function activePlayerCount() { return Object.keys(players).filter(uid => isPlayerActive(uid)).length; }
+
+function shuffle(array) {
+  const a = [...array];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = randInt(0, i);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function drawLabel(kind) {
+  const pool = kind === 'rational' ? rationalPool : irrationalPool;
+  let bag = kind === 'rational' ? rationalBag : irrationalBag;
+  if (!bag.length) bag = shuffle(pool);
+  const activeLabels = new Set(Array.from(targets.values()).map(t => t.label));
+  let chosen = null;
+  for (let i = 0; i < pool.length; i++) {
+    const candidate = bag.shift();
+    if (!activeLabels.has(candidate)) { chosen = candidate; break; }
+    bag.push(candidate);
+  }
+  if (!chosen) chosen = pool[randInt(0, pool.length - 1)];
+  if (kind === 'rational') rationalBag = bag;
+  else irrationalBag = bag;
+  return chosen;
+}
 
 async function boot() {
   try {
@@ -63,20 +119,20 @@ async function boot() {
     pass = passSnap.val();
     roomCode = pass.roomCode;
 
-    await set(ref(db, activeHostPath()), {
-      hostToken: token,
-      joinedAt: Date.now()
-    });
+    await set(ref(db, activeHostPath()), { hostToken: token, joinedAt: Date.now() });
 
     $('gameTitle').textContent = pass.gameName;
     $('roomCode').textContent = roomCode;
-    $('hostStatus').textContent = '教師控制通行證有效';
+    $('qrRoomCode').textContent = roomCode;
+    $('hostStatus').textContent = '控制連線有效';
     $('hostGame').classList.remove('hidden');
-    setFatal('ok', '教師控制端已連線。學生現在可以掃 QR Code 加入。');
+    setFatal('ok', '教師控制端已連線。');
 
     initGameSettings();
+    await setupStudentQr();
     bindControls();
     subscribePlayers();
+    subscribeActivePlayers();
     subscribeScores();
     subscribeAims();
     subscribeShots();
@@ -98,39 +154,103 @@ function initGameSettings() {
     if (sec === DEFAULT_TARGET_SECONDS) opt.selected = true;
     lifetimeSelect.appendChild(opt);
   }
+  for (const id of ['rationalCountSelect','irrationalCountSelect']) {
+    const select = $(id);
+    select.replaceChildren();
+    for (let count = 3; count <= 10; count++) {
+      const opt = document.createElement('option');
+      opt.value = String(count);
+      opt.textContent = `${count} 個`;
+      if (count === 8) opt.selected = true;
+      select.appendChild(opt);
+    }
+  }
   $('gameDurationSelect').value = String(DEFAULT_GAME_SECONDS);
   applySelectedSettings();
-  $('gameDurationSelect').addEventListener('change', applySelectedSettings);
-  $('targetLifetimeSelect').addEventListener('change', applySelectedSettings);
+  ['gameDurationSelect','targetLifetimeSelect','rationalCountSelect','irrationalCountSelect']
+    .forEach(id => $(id).addEventListener('change', applySelectedSettings));
 }
 
 function applySelectedSettings() {
   const sec = Number($('gameDurationSelect').value);
   const life = Number($('targetLifetimeSelect').value);
-  if (Number.isFinite(sec) && [60,90,120,150].includes(sec)) gameDurationSeconds = sec;
+  const rCount = Number($('rationalCountSelect').value);
+  const iCount = Number($('irrationalCountSelect').value);
+  if ([60,90,120,150].includes(sec)) gameDurationSeconds = sec;
   if (Number.isFinite(life) && life >= 1 && life <= 15) targetLifetimeMs = life * 1000;
+  if (Number.isInteger(rCount) && rCount >= 3 && rCount <= 10) rationalTargetCount = rCount;
+  if (Number.isInteger(iCount) && iCount >= 3 && iCount <= 10) irrationalTargetCount = iCount;
   if (round.status === 'waiting' || round.status === 'finished') {
     round.remainingMs = gameDurationSeconds * 1000;
     $('timer').textContent = String(gameDurationSeconds);
   }
   $('startBtn').textContent = `開始 ${gameDurationSeconds} 秒`;
-  $('gameRuleSummary').textContent = `每個數字停留 ${Math.round(targetLifetimeMs/1000)} 秒｜射擊間隔至少 1 秒｜${gameDurationSeconds} 秒挑戰`;
+  $('gameRuleSummary').textContent = `停留 ${Math.round(targetLifetimeMs/1000)} 秒｜有理數 ${rationalTargetCount} 個｜無理數 ${irrationalTargetCount} 個｜${gameDurationSeconds} 秒挑戰`;
+}
+
+async function setupStudentQr() {
+  const qrBtn = $('qrBtn');
+  const hint = $('qrHint');
+  let joinToken = pass?.joinToken || null;
+  if (!joinToken) {
+    try {
+      const roomSnap = await get(ref(db, `rooms/${roomCode}`));
+      joinToken = roomSnap.val()?.joinToken || null;
+    } catch {}
+  }
+  if (!joinToken) {
+    qrBtn.disabled = true;
+    hint.textContent = '此房間尚未取得學生通行證。請管理員重新整理管理中心一次，或建立新房間。';
+    return;
+  }
+  const joinUrl = new URL('./join.html', window.location.href);
+  joinUrl.search = '';
+  joinUrl.searchParams.set('t', joinToken);
+  $('studentJoinUrl').value = joinUrl.href;
+  const qrBox = $('hostQr');
+  qrBox.replaceChildren();
+  if (window.QRCode) new QRCode(qrBox, { text: joinUrl.href, width: 250, height: 250 });
 }
 
 function bindControls() {
-  $('startBtn').addEventListener('click', () => startRound(true));
+  $('startBtn').addEventListener('click', () => startRound(false));
   $('restartBtn').addEventListener('click', () => {
-    if (confirm('確定重新開始？目前分數會歸零並重新計時 60 秒。')) startRound(true);
+    if (confirm(`確定重新開始？所有已加入學生分數會歸零，並重新計時 ${gameDurationSeconds} 秒。`)) startRound(true);
   });
   $('pauseBtn').addEventListener('click', pauseRound);
   $('resumeBtn').addEventListener('click', resumeRound);
-  $('fullscreenBtn').addEventListener('click', async () => {
-    try {
-      if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
-      else await document.exitFullscreen();
-    } catch {}
-  });
+  $('fullscreenBtn').addEventListener('click', toggleGameFullscreen);
   $('crosshairToggle').addEventListener('change', renderCrosshairs);
+  $('selectAllBtn').addEventListener('click', () => setAllPlayersActive(true));
+  $('selectNoneBtn').addEventListener('click', () => setAllPlayersActive(false));
+  $('resetAllScoresBtn').addEventListener('click', () => {
+    if (confirm('確定將所有已加入學生的分數歸零？')) resetAllScores();
+  });
+  $('qrBtn').addEventListener('click', () => {
+    if ($('qrDialog').showModal) $('qrDialog').showModal();
+    else $('qrDialog').setAttribute('open','');
+  });
+  $('closeQrBtn').addEventListener('click', () => $('qrDialog').close?.());
+  $('copyJoinUrlBtn').addEventListener('click', async () => {
+    const value = $('studentJoinUrl').value;
+    if (!value) return;
+    await navigator.clipboard.writeText(value);
+    const old = $('copyJoinUrlBtn').textContent;
+    $('copyJoinUrlBtn').textContent = '已複製';
+    setTimeout(() => $('copyJoinUrlBtn').textContent = old, 1000);
+  });
+}
+
+async function toggleGameFullscreen() {
+  const stage = $('gameStage');
+  try {
+    if (!document.fullscreenElement) {
+      if (stage.requestFullscreen) await stage.requestFullscreen();
+      else if (stage.webkitRequestFullscreen) stage.webkitRequestFullscreen();
+    } else if (document.exitFullscreen) {
+      await document.exitFullscreen();
+    }
+  } catch {}
 }
 
 function subscribePassValidity() {
@@ -148,17 +268,26 @@ function subscribePassValidity() {
 }
 
 function disableGameControls() {
-  ['startBtn','restartBtn','pauseBtn','resumeBtn'].forEach(id => $(id).disabled = true);
-  $('fireBtn')?.setAttribute('disabled','');
+  ['startBtn','restartBtn','pauseBtn','resumeBtn','selectAllBtn','selectNoneBtn','resetAllScoresBtn'].forEach(id => $(id).disabled = true);
 }
 
 function subscribePlayers() {
   onValue(ref(db, `playerAccess/${roomCode}`), snap => {
     players = snap.val() || {};
-    $('playerCount').textContent = Object.keys(players).length;
-    $('joinedCount').textContent = `${Object.keys(players).length} 人`;
-    renderPlayerList();
+    updatePlayerCounters();
+    renderPlayerRoster();
     renderLeaderboard();
+    renderCrosshairs();
+  });
+}
+
+function subscribeActivePlayers() {
+  onValue(ref(db, `activePlayers/${roomCode}`), snap => {
+    activePlayers = snap.val() || {};
+    updatePlayerCounters();
+    renderPlayerRoster();
+    renderLeaderboard();
+    renderCrosshairs();
   });
 }
 
@@ -166,6 +295,7 @@ function subscribeScores() {
   onValue(ref(db, `scores/${roomCode}`), snap => {
     scores = snap.val() || {};
     renderLeaderboard();
+    renderPlayerRoster();
   });
 }
 
@@ -185,7 +315,7 @@ function subscribeShots() {
     const last = shotSeqSeen.get(uid) || 0;
     if (shot.seq <= last) return;
     shotSeqSeen.set(uid, shot.seq);
-    if (round.status !== 'running') return;
+    if (round.status !== 'running' || !isPlayerActive(uid)) return;
     if (!Number.isFinite(shot.shotAt) || shot.shotAt < round.startedAt - 1000) return;
     handleShot(uid, shot);
   };
@@ -198,7 +328,6 @@ function subscribeGameState() {
     const state = snap.val();
     if (!state) return;
     if (state.controllerUid === hostUid) return;
-    // 若另一個教師控制頁接手，讓本頁同步狀態但不重新建立目標。
     if (Number.isFinite(state.durationMs)) {
       gameDurationSeconds = Math.max(1, Math.round(state.durationMs / 1000));
       if ([60,90,120,150].includes(gameDurationSeconds)) $('gameDurationSelect').value = String(gameDurationSeconds);
@@ -207,6 +336,14 @@ function subscribeGameState() {
       targetLifetimeMs = state.targetLifetimeMs;
       const sec = Math.round(targetLifetimeMs / 1000);
       if (sec >= 1 && sec <= 15) $('targetLifetimeSelect').value = String(sec);
+    }
+    if (Number.isInteger(state.rationalTargetCount) && state.rationalTargetCount >= 3 && state.rationalTargetCount <= 10) {
+      rationalTargetCount = state.rationalTargetCount;
+      $('rationalCountSelect').value = String(rationalTargetCount);
+    }
+    if (Number.isInteger(state.irrationalTargetCount) && state.irrationalTargetCount >= 3 && state.irrationalTargetCount <= 10) {
+      irrationalTargetCount = state.irrationalTargetCount;
+      $('irrationalCountSelect').value = String(irrationalTargetCount);
     }
     applySelectedSettings();
     if (['waiting','paused','finished','closed'].includes(state.status)) {
@@ -218,13 +355,15 @@ function subscribeGameState() {
 }
 
 async function startRound(resetScores) {
+  if (!activePlayerCount()) {
+    const ok = confirm('目前尚未勾選任何「本局參加」學生。仍要開始遊戲嗎？');
+    if (!ok) return;
+  }
   stopEngine();
   clearTargets();
   clearEffects();
   hitTargetsByPlayer = new Map();
   shotSeqSeen = new Map();
-  desiredR = randInt(MIN_TARGETS, MAX_TARGETS);
-  desiredI = randInt(MIN_TARGETS, MAX_TARGETS);
 
   const now = Date.now();
   round = {
@@ -235,25 +374,13 @@ async function startRound(resetScores) {
     remainingMs: gameDurationSeconds * 1000
   };
 
-  if (resetScores) {
-    const newScores = {};
-    for (const [uid, p] of Object.entries(players)) {
-      newScores[uid] = { seat: Number(p.seat), score: 0, hits: 0, misses: 0, updatedAt: now };
-    }
-    await set(ref(db, `scores/${roomCode}`), newScores);
-  }
-
+  if (resetScores) await resetAllScores(false);
   await writeGameState();
   $('startOverlay').classList.add('hidden');
-  $('roundMessage').textContent = '遊戲進行中：請學生射擊有理數。';
+  $('roundMessage').textContent = `遊戲進行中：本局 ${activePlayerCount()} 人參加。`;
   updateControlState();
   ensureTargetCounts();
-
   engineTimer = setInterval(engineTick, 120);
-  desiredTimer = setInterval(() => {
-    desiredR = randInt(MIN_TARGETS, MAX_TARGETS);
-    desiredI = randInt(MIN_TARGETS, MAX_TARGETS);
-  }, 2500);
 }
 
 async function pauseRound() {
@@ -270,25 +397,19 @@ async function pauseRound() {
 async function resumeRound() {
   if (round.status !== 'paused') return;
   round.status = 'running';
-  round.startedAt = Date.now(); // 僅供忽略暫停期間舊射擊；分數不重設
+  round.startedAt = Date.now();
   round.endsAt = Date.now() + Math.max(1000, round.remainingMs);
   await writeGameState();
-  $('roundMessage').textContent = '遊戲繼續。';
+  $('roundMessage').textContent = `遊戲繼續：本局 ${activePlayerCount()} 人參加。`;
   updateControlState();
   ensureTargetCounts();
   engineTimer = setInterval(engineTick, 120);
-  desiredTimer = setInterval(() => {
-    desiredR = randInt(MIN_TARGETS, MAX_TARGETS);
-    desiredI = randInt(MIN_TARGETS, MAX_TARGETS);
-  }, 2500);
 }
 
-function stopEngine(clearIntervals = true) {
+function stopEngine(updateRemaining = true) {
   if (engineTimer) clearInterval(engineTimer);
-  if (desiredTimer) clearInterval(desiredTimer);
   engineTimer = null;
-  desiredTimer = null;
-  if (clearIntervals) round.remainingMs = Math.max(0, round.endsAt ? round.endsAt - Date.now() : round.remainingMs);
+  if (updateRemaining) round.remainingMs = Math.max(0, round.endsAt ? round.endsAt - Date.now() : round.remainingMs);
 }
 
 async function finishRound() {
@@ -301,7 +422,7 @@ async function finishRound() {
   $('roundMessage').textContent = `${gameDurationSeconds} 秒結束！排行榜已保留。`;
   $('startOverlay').classList.remove('hidden');
   $('startOverlay').querySelector('strong').textContent = '時間到！';
-  $('startOverlay').querySelector('span').textContent = '可查看排行榜，或按「重新開始」再玩一局。';
+  $('startOverlay').querySelector('span').textContent = '可查看排行榜、調整本局學生，或重新開始。';
   updateControlState();
 }
 
@@ -314,6 +435,8 @@ async function writeGameState() {
     remainingMs: Math.max(0, Math.round(round.remainingMs)),
     durationMs: gameDurationSeconds * 1000,
     targetLifetimeMs,
+    rationalTargetCount,
+    irrationalTargetCount,
     controllerUid: hostUid,
     updatedAt: Date.now()
   });
@@ -337,32 +460,21 @@ function ensureTargetCounts() {
   if (round.status !== 'running') return;
   let rCount = 0, iCount = 0;
   for (const t of targets.values()) t.kind === 'rational' ? rCount++ : iCount++;
-  while (rCount < desiredR && rCount < MAX_TARGETS) { spawnTarget('rational'); rCount++; }
-  while (iCount < desiredI && iCount < MAX_TARGETS) { spawnTarget('irrational'); iCount++; }
-  // 即使 desired 暫時降低，也不提早移除，讓所有目標完整停留 5 秒。
-  while (rCount < MIN_TARGETS) { spawnTarget('rational'); rCount++; }
-  while (iCount < MIN_TARGETS) { spawnTarget('irrational'); iCount++; }
-}
-
-function pickUniqueLabel(pool) {
-  const active = new Set(Array.from(targets.values()).map(t => t.label));
-  const choices = pool.filter(x => !active.has(x));
-  const source = choices.length ? choices : pool;
-  return source[randInt(0, source.length - 1)];
+  while (rCount < rationalTargetCount) { spawnTarget('rational'); rCount++; }
+  while (iCount < irrationalTargetCount) { spawnTarget('irrational'); iCount++; }
 }
 
 function findSpawnPosition() {
   let best = { x: .5, y: .5, d: -1 };
-  for (let i = 0; i < 80; i++) {
-    const x = 0.08 + Math.random() * 0.84;
-    const y = 0.13 + Math.random() * 0.78;
+  for (let i = 0; i < 120; i++) {
+    const x = 0.075 + Math.random() * 0.85;
+    const y = 0.11 + Math.random() * 0.80;
     let minD = 99;
     for (const t of targets.values()) {
-      const dx = x - t.x, dy = y - t.y;
-      minD = Math.min(minD, Math.hypot(dx, dy));
+      minD = Math.min(minD, Math.hypot(x - t.x, y - t.y));
     }
     if (minD > best.d) best = { x, y, d: minD };
-    if (minD > 0.082) return { x, y };
+    if (minD > 0.09) return { x, y };
   }
   return { x: best.x, y: best.y };
 }
@@ -370,7 +482,7 @@ function findSpawnPosition() {
 function spawnTarget(kind) {
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
   const { x, y } = findSpawnPosition();
-  const label = pickUniqueLabel(kind === 'rational' ? rationalPool : irrationalPool);
+  const label = drawLabel(kind);
   const now = Date.now();
   const target = { id, kind, label, x, y, spawnedAt: now, expiresAt: now + targetLifetimeMs };
   targets.set(id, target);
@@ -398,6 +510,7 @@ function clearTargets() {
 function clearEffects() { $('effectsLayer').replaceChildren(); }
 
 async function handleShot(uid, shot) {
+  if (!isPlayerActive(uid)) return;
   const p = players[uid];
   if (!p) return;
   const x = clamp(Number(shot.x), 0, 1);
@@ -461,7 +574,7 @@ function renderCrosshairs() {
   if (!$('crosshairToggle').checked) return;
   const now = Date.now();
   for (const [uid, a] of Object.entries(aims)) {
-    if (!players[uid]) continue;
+    if (!players[uid] || !isPlayerActive(uid)) continue;
     if (!Number.isFinite(a.x) || !Number.isFinite(a.y)) continue;
     if (Number.isFinite(a.updatedAt) && now - a.updatedAt > 15000) continue;
     const el = document.createElement('div');
@@ -474,16 +587,71 @@ function renderCrosshairs() {
   }
 }
 
-function renderPlayerList() {
+function updatePlayerCounters() {
+  const joined = Object.keys(players).length;
+  const active = activePlayerCount();
+  $('playerCount').textContent = `${active}/${joined}`;
+  $('joinedCount').textContent = `${joined} 人`;
+  $('activeCount').textContent = `本局 ${active} 人`;
+}
+
+async function setPlayerActive(uid, active) {
+  if (!players[uid]) return;
+  await set(ref(db, `activePlayers/${roomCode}/${uid}`), active ? true : null);
+}
+
+async function setAllPlayersActive(active) {
+  const writes = {};
+  for (const uid of Object.keys(players)) writes[uid] = active ? true : null;
+  await update(ref(db, `activePlayers/${roomCode}`), writes);
+}
+
+function renderPlayerRoster() {
+  const roster = $('playerRoster');
   const arr = Object.entries(players).sort((a,b) => Number(a[1].seat) - Number(b[1].seat));
-  $('playerList').innerHTML = arr.length ? arr.map(([uid,p]) => `<span class="player-chip">${safeText(p.seat)}號</span>`).join('') : '<div class="muted">等待學生掃描 QR Code。</div>';
+  if (!arr.length) {
+    roster.innerHTML = '<div class="muted">等待學生掃描 QR Code。</div>';
+    return;
+  }
+  roster.replaceChildren();
+  for (const [uid, p] of arr) {
+    const row = document.createElement('div');
+    row.className = `player-roster-row ${isPlayerActive(uid) ? 'active' : ''}`;
+    row.innerHTML = `
+      <label class="player-check"><input type="checkbox" ${isPlayerActive(uid) ? 'checked' : ''}><span>${safeText(p.seat)}號</span></label>
+      <strong>${Number(scores[uid]?.score || 0)}</strong>
+      <button class="btn ghost tiny-btn reset-one">歸零</button>`;
+    row.querySelector('input').addEventListener('change', e => setPlayerActive(uid, e.target.checked));
+    row.querySelector('.reset-one').addEventListener('click', () => resetPlayerScore(uid));
+    roster.appendChild(row);
+  }
 }
 
 function renderLeaderboard() {
-  const arr = Object.entries(players).map(([uid,p]) => ({ uid, seat:Number(p.seat), score:Number(scores[uid]?.score || 0) }));
+  const arr = Object.entries(players)
+    .filter(([uid]) => isPlayerActive(uid))
+    .map(([uid,p]) => ({ uid, seat:Number(p.seat), score:Number(scores[uid]?.score || 0) }));
   arr.sort((a,b) => b.score - a.score || a.seat - b.seat);
   $('leaderboard').innerHTML = arr.length ? arr.slice(0,27).map((p,i) => `
-    <div class="leader-row ${i < 3 ? 'top-rank' : ''}"><span>${i+1}</span><b>${safeText(p.seat)}號</b><strong>${p.score}</strong></div>`).join('') : '<div class="muted">尚無玩家。</div>';
+    <div class="leader-row ${i < 3 ? 'top-rank' : ''}"><span>${i+1}</span><b>${safeText(p.seat)}號</b><strong>${p.score}</strong></div>`).join('') : '<div class="muted">尚未勾選本局參加學生。</div>';
+}
+
+async function resetPlayerScore(uid) {
+  const p = players[uid];
+  if (!p) return;
+  await set(ref(db, `scores/${roomCode}/${uid}`), {
+    seat: Number(p.seat), score: 0, hits: 0, misses: 0, updatedAt: Date.now()
+  });
+}
+
+async function resetAllScores(ask = true) {
+  if (ask && !confirm('確定將所有已加入學生的分數歸零？')) return;
+  const now = Date.now();
+  const newScores = {};
+  for (const [uid, p] of Object.entries(players)) {
+    newScores[uid] = { seat: Number(p.seat), score: 0, hits: 0, misses: 0, updatedAt: now };
+  }
+  await set(ref(db, `scores/${roomCode}`), Object.keys(newScores).length ? newScores : null);
 }
 
 function startUiClock() {
@@ -501,8 +669,8 @@ function updateControlState() {
   $('pauseBtn').disabled = !running;
   $('resumeBtn').classList.toggle('hidden', !paused);
   $('startBtn').disabled = running || paused;
-  $('gameDurationSelect').disabled = running || paused;
-  $('targetLifetimeSelect').disabled = running || paused;
+  ['gameDurationSelect','targetLifetimeSelect','rationalCountSelect','irrationalCountSelect']
+    .forEach(id => $(id).disabled = running || paused);
   $('gameStatusBadge').className = `badge ${running ? 'active' : paused ? 'scheduled' : 'closed'}`;
   $('gameStatusBadge').textContent = running ? '進行中' : paused ? '暫停' : round.status === 'finished' ? '已結束' : '等待';
   updateFieldState();

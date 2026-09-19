@@ -20,6 +20,7 @@ let seat = null;
 let aim = { x:.5, y:.5 };
 let seq = 0;
 let gameState = { status:'waiting', remainingMs:60000 };
+let isActivePlayer = false;
 let lastFireLocal = 0;
 let aimWriteTimer = null;
 let lastAimWrite = 0;
@@ -79,7 +80,6 @@ async function joinGame() {
     await update(ref(db), writes);
     const oldShot = await get(ref(db, `playerShots/${room}/${uid}`));
     seq = Number(oldShot.val()?.seq || 0);
-    await set(ref(db, `playerAim/${room}/${uid}`), { x:.5, y:.5, updatedAt:Date.now() });
 
     $('status').className='notice ok';
     $('status').textContent=`座號 ${seat} 已加入。請看前方大螢幕。`;
@@ -87,6 +87,7 @@ async function joinGame() {
     $('controller').classList.remove('hidden');
     $('seatLabel').textContent = seat;
     bindController();
+    subscribeParticipation();
     subscribeGame();
     subscribeScore();
   } catch (e) {
@@ -95,6 +96,19 @@ async function joinGame() {
     $('status').textContent=message;
     $('continueBtn').disabled = false;
   }
+}
+
+
+function subscribeParticipation() {
+  onValue(ref(db, `activePlayers/${room}/${uid}`), snap => {
+    const wasActive = isActivePlayer;
+    isActivePlayer = snap.val() === true;
+    if (isActivePlayer && !wasActive) scheduleAimWrite(true);
+    updateControllerState();
+  }, () => {
+    isActivePlayer = false;
+    updateControllerState();
+  });
 }
 
 function subscribeGame() {
@@ -120,10 +134,14 @@ function updateControllerState() {
   if (gameState.status === 'running' && Number.isFinite(gameState.endsAt)) remaining = Math.max(0, gameState.endsAt - Date.now());
   $('timeLabel').textContent = Math.ceil(remaining / 1000);
   const running = gameState.status === 'running' && remaining > 0;
-  $('fireBtn').disabled = !running || Date.now() - lastFireLocal < 1000;
-  if (running) {
+  const canPlay = running && isActivePlayer;
+  $('fireBtn').disabled = !canPlay || Date.now() - lastFireLocal < 1000;
+  if (running && !isActivePlayer) {
+    $('gameMessage').className='notice info';
+    $('gameMessage').textContent='本局待命中：等待老師勾選你參加。這一局不會顯示你的準星，也不會計分。';
+  } else if (running) {
     $('gameMessage').className='notice ok';
-    $('gameMessage').textContent='遊戲進行中：瞄準大螢幕上的有理數，按 FIRE！';
+    $('gameMessage').textContent='本局已上場：瞄準大螢幕上的有理數，按 FIRE！';
   } else if (gameState.status === 'paused') {
     $('gameMessage').className='notice info'; $('gameMessage').textContent='遊戲暫停。';
   } else if (gameState.status === 'finished') {
@@ -132,7 +150,7 @@ function updateControllerState() {
     $('gameMessage').className='notice info'; $('gameMessage').textContent='等待老師開始遊戲。';
   }
   const cooldown = Math.max(0, 1000 - (Date.now() - lastFireLocal));
-  $('cooldownLabel').textContent = !running ? '等待遊戲' : cooldown > 0 ? `${(cooldown/1000).toFixed(1)} 秒` : '可以射擊';
+  $('cooldownLabel').textContent = !running ? '等待遊戲' : !isActivePlayer ? '本局待命' : cooldown > 0 ? `${(cooldown/1000).toFixed(1)} 秒` : '可以射擊';
 }
 
 function bindController() {
@@ -192,6 +210,7 @@ function setAim(x,y,force=false) {
 }
 function renderAimDot() { $('aimDot').style.left=`${aim.x*100}%`; $('aimDot').style.top=`${aim.y*100}%`; }
 function scheduleAimWrite(force=false) {
+  if (!isActivePlayer) return;
   const now = Date.now();
   const due = force ? 0 : Math.max(0, 100 - (now-lastAimWrite));
   if (aimWriteTimer) clearTimeout(aimWriteTimer);
@@ -203,7 +222,7 @@ function scheduleAimWrite(force=false) {
 
 async function fire() {
   const now=Date.now();
-  if (gameState.status !== 'running') return;
+  if (gameState.status !== 'running' || !isActivePlayer) return;
   if (now-lastFireLocal < 1000) return;
   lastFireLocal=now;
   seq += 1;
