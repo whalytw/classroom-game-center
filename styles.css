@@ -420,3 +420,137 @@ footer { color:var(--muted); font-size:.9rem; padding:8px 0 30px; }
   background:#0f513f;
   color:#caffea;
 }
+
+
+/* ===== v2.7 全螢幕名單高度 + 手機直橫式雙手控制 ===== */
+/* 全螢幕時維持與一般畫面相近的學生列高度，不再讓少量學生列被拉高。 */
+.player-roster {
+  align-content:start;
+  grid-auto-rows:max-content;
+}
+.game-stage:fullscreen .player-roster,
+.game-stage:-webkit-full-screen .player-roster {
+  flex:0 0 auto;
+  min-height:0;
+  height:auto;
+  max-height:360px;
+  align-content:start;
+  grid-auto-rows:max-content;
+  overflow-y:auto;
+}
+
+/* 手機握持切換 */
+.grip-mode-bar {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+  margin:10px 0;
+  padding:8px 10px;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:#f8fafc;
+}
+.grip-mode-group { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.grip-label { color:var(--muted); font-size:.82rem; font-weight:800; }
+.segmented-control {
+  display:inline-flex;
+  gap:2px;
+  padding:3px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:#fff;
+}
+.segment-btn {
+  border:0;
+  border-radius:7px;
+  min-height:36px;
+  padding:7px 12px;
+  background:transparent;
+  color:#334155;
+  font-weight:800;
+}
+.segment-btn.active {
+  background:var(--primary);
+  color:#fff;
+}
+
+.controller-core { display:flex; flex-direction:column; gap:12px; }
+.aim-section { min-width:0; }
+.controller-core.portrait-layout .fire-btn {
+  order:2;
+  width:100%;
+  min-height:104px;
+}
+.controller-core.portrait-layout .aim-section { order:1; }
+
+/* 感應相關設定固定排在 FIRE 下方，直式與橫式都一致。 */
+.sensor-panel {
+  margin-top:12px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:8px 10px;
+  align-items:center;
+}
+.sensor-panel > #tiltBtn { width:100%; }
+.sensor-panel .sensor-options { grid-column:1/-1; }
+.sensor-panel > #recenterTiltBtn { grid-column:1/-1; justify-self:start; }
+#tiltBtn.sensor-active {
+  background:#e0f2fe;
+  border-color:#38bdf8;
+  color:#075985;
+}
+
+/* 橫式握持：觸控瞄準區與 FIRE 左右並排，可選 FIRE 左／右。 */
+.controller-landscape-mode .controller-shell { max-width:1040px; }
+.controller-core.landscape-layout {
+  display:grid;
+  grid-template-columns:minmax(0,1.8fr) minmax(150px,.72fr);
+  grid-template-areas:"aim fire";
+  gap:12px;
+  align-items:stretch;
+}
+.controller-core.landscape-layout.fire-left {
+  grid-template-columns:minmax(150px,.72fr) minmax(0,1.8fr);
+  grid-template-areas:"fire aim";
+}
+.controller-core.landscape-layout .aim-section { grid-area:aim; min-width:0; }
+.controller-core.landscape-layout .fire-btn {
+  grid-area:fire;
+  width:100%;
+  height:100%;
+  min-height:210px;
+  align-self:stretch;
+}
+.controller-core.landscape-layout .aim-pad {
+  aspect-ratio:1.7/1;
+  min-height:210px;
+}
+.controller-landscape-mode .controller-card { padding:12px 14px; }
+.controller-landscape-mode .controller-score-row { margin:8px 0; }
+.controller-landscape-mode .notice { margin:8px 0; }
+.controller-landscape-mode .controller-room-meta { margin-bottom:8px; }
+
+@media (max-width:520px) {
+  .grip-mode-bar { align-items:flex-start; }
+  .grip-mode-group { width:100%; justify-content:space-between; }
+  /* 手機尚未橫放時仍保持可操作，真正橫放後自動取得較寬版面。 */
+  .controller-core.landscape-layout,
+  .controller-core.landscape-layout.fire-left {
+    grid-template-columns:minmax(0,1.45fr) minmax(108px,.55fr);
+  }
+  .controller-core.landscape-layout .fire-btn { min-height:190px; }
+  .controller-core.landscape-layout .aim-pad { min-height:190px; }
+}
+
+@media (orientation:landscape) and (max-height:600px) {
+  .controller-landscape-mode .controller-shell { max-width:none; padding:6px 10px; }
+  .controller-landscape-mode .controller-card h1 { font-size:1.25rem; margin:2px 0 6px; }
+  .controller-landscape-mode .controller-score-row > div { padding:5px; }
+  .controller-landscape-mode .controller-score-row strong { font-size:1.15rem; }
+  .controller-landscape-mode .grip-mode-bar { margin:6px 0; padding:5px 7px; }
+  .controller-core.landscape-layout .aim-pad { min-height:180px; }
+  .controller-core.landscape-layout .fire-btn { min-height:180px; }
+  .controller-landscape-mode .sensor-panel { margin-top:8px; }
+}

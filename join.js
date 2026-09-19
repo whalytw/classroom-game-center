@@ -33,6 +33,8 @@ let tiltInvertX = false;
 let tiltInvertY = false;
 let sensorMode = 'yaw';
 let removedByTeacher = false;
+let gripMode = 'portrait';
+let fireSide = 'right';
 
 async function boot() {
   try {
@@ -197,13 +199,20 @@ function bindController() {
   pad.addEventListener('pointerup', endPointer); pad.addEventListener('pointercancel', endPointer); pad.addEventListener('pointerleave', e => { if (e.buttons===0) endPointer(); });
   $('centerBtn').addEventListener('click', () => setAim(.5,.5,true));
   $('fireBtn').addEventListener('click', fire);
-  $('tiltBtn').addEventListener('click', enableTilt);
+  $('tiltBtn').addEventListener('click', toggleTilt);
 
-  // 每支手機可自行反轉水平／垂直方向；偏好保存在該手機瀏覽器。
+  // 每支手機保留握持方式、FIRE 左右位置與感應反轉偏好。
   try {
     tiltInvertX = localStorage.getItem('classroomGameTiltInvertX') === '1';
     tiltInvertY = localStorage.getItem('classroomGameTiltInvertY') === '1';
+    gripMode = localStorage.getItem('classroomGameGripMode') === 'landscape' ? 'landscape' : 'portrait';
+    fireSide = localStorage.getItem('classroomGameFireSide') === 'left' ? 'left' : 'right';
   } catch {}
+  applyGripMode(false);
+  $('portraitModeBtn').addEventListener('click', () => setGripMode('portrait'));
+  $('landscapeModeBtn').addEventListener('click', () => setGripMode('landscape'));
+  $('fireLeftBtn').addEventListener('click', () => setFireSide('left'));
+  $('fireRightBtn').addEventListener('click', () => setFireSide('right'));
   $('invertXToggle').checked = tiltInvertX;
   $('invertYToggle').checked = tiltInvertY;
   $('invertXToggle').addEventListener('change', () => {
@@ -262,6 +271,14 @@ async function fire() {
   updateControllerState();
 }
 
+async function toggleTilt() {
+  if (tiltEnabled) {
+    disableTilt();
+    return;
+  }
+  await enableTilt();
+}
+
 async function enableTilt() {
   try {
     if (typeof DeviceOrientationEvent === 'undefined') throw new Error('此手機瀏覽器沒有提供方向感測器。');
@@ -269,53 +286,130 @@ async function enableTilt() {
       const r = await DeviceOrientationEvent.requestPermission();
       if (r !== 'granted') throw new Error('未取得方向感測器權限。');
     }
-    tiltBase=null; tiltEnabled=true; sensorMode='yaw';
+    tiltBase = null;
+    tiltEnabled = true;
+    sensorMode = 'yaw';
+    window.removeEventListener('deviceorientation', onOrientation);
     window.addEventListener('deviceorientation', onOrientation, { passive:true });
-    $('tiltBtn').textContent='光線槍感應已啟用';
-    $('tiltBtn').disabled=true;
-    $('recenterTiltBtn').disabled=false;
-    $('controllerHint').textContent = '請先把手機朝向螢幕中央並保持自然握姿；系統會以第一次感測姿勢為中心。左右旋轉手機控制左右，抬高／壓低控制上下。';
+    $('tiltBtn').textContent = '關閉光線槍感應';
+    $('tiltBtn').classList.add('sensor-active');
+    $('recenterTiltBtn').disabled = false;
+    $('controllerHint').textContent = sensorInstruction('尚未校正：請先把手機朝向螢幕中央並保持自然握姿。');
   } catch (e) {
+    tiltEnabled = false;
+    $('tiltBtn').textContent = '啟用光線槍感應';
+    $('tiltBtn').classList.remove('sensor-active');
+    $('recenterTiltBtn').disabled = true;
     $('controllerHint').textContent=`光線槍感應無法啟用：${e?.message || '不支援'}。仍可使用拖曳瞄準。`;
   }
 }
+
+function disableTilt() {
+  tiltEnabled = false;
+  tiltBase = null;
+  sensorMode = 'yaw';
+  window.removeEventListener('deviceorientation', onOrientation);
+  $('tiltBtn').textContent = '啟用光線槍感應';
+  $('tiltBtn').classList.remove('sensor-active');
+  $('recenterTiltBtn').disabled = true;
+  $('controllerHint').textContent = '光線槍感應已關閉；目前可使用觸控區拖曳準星。';
+}
+
+function sensorInstruction(prefix = '已校正。') {
+  return gripMode === 'landscape'
+    ? `${prefix} 橫式握持：左右旋轉手機控制左右；上下抬壓手機控制上下。`
+    : `${prefix} 直式握持：左右旋轉手機控制左右；上下抬壓手機控制上下。`;
+}
+
 function onOrientation(e) {
-  if (!tiltEnabled || !Number.isFinite(e.beta)) return;
+  if (!tiltEnabled) return;
   const now=Date.now(); if (now-lastTiltUpdate<70) return; lastTiltUpdate=now;
 
-  const hasYaw = Number.isFinite(e.alpha);
-  const hasFallback = Number.isFinite(e.gamma);
-  if (!hasYaw && !hasFallback) return;
+  const hasAlpha = Number.isFinite(e.alpha);
+  const hasBeta = Number.isFinite(e.beta);
+  const hasGamma = Number.isFinite(e.gamma);
+  if (!hasBeta && !hasGamma) return;
+  if (!hasAlpha && !hasBeta && !hasGamma) return;
 
   if (!tiltBase) {
-    sensorMode = hasYaw ? 'yaw' : 'fallback';
-    tiltBase = { alpha: hasYaw ? e.alpha : null, gamma: hasFallback ? e.gamma : null, beta: e.beta };
+    sensorMode = hasAlpha ? 'yaw' : 'fallback';
+    tiltBase = {
+      alpha: hasAlpha ? e.alpha : null,
+      beta: hasBeta ? e.beta : null,
+      gamma: hasGamma ? e.gamma : null
+    };
     setAim(.5,.5,true);
     $('controllerHint').textContent = sensorMode === 'yaw'
-      ? '已校正。左右請「旋轉」手機像光線槍一樣瞄準；上下請抬高／壓低手機。'
-      : '此手機未提供方位角，已改用左右傾斜備援模式；仍可正常射擊。';
+      ? sensorInstruction('已校正。')
+      : `此手機未提供方位角，已改用傾斜備援模式。${gripMode === 'landscape' ? '橫式握持可用上下／左右傾斜控制。' : '直式握持可用左右／上下傾斜控制。'}`;
     return;
   }
 
-  let horizontalDelta;
-  if (sensorMode === 'yaw' && hasYaw && Number.isFinite(tiltBase.alpha)) {
-    // alpha 是手機方位角；用相對角度讓手機左右旋轉更像光線槍。
+  let horizontalDelta = 0;
+  if (sensorMode === 'yaw' && hasAlpha && Number.isFinite(tiltBase.alpha)) {
     horizontalDelta = -angleDelta(e.alpha, tiltBase.alpha);
-  } else if (hasFallback && Number.isFinite(tiltBase.gamma)) {
+  } else if (gripMode === 'landscape' && hasBeta && Number.isFinite(tiltBase.beta)) {
+    horizontalDelta = angleDelta(e.beta, tiltBase.beta);
+  } else if (hasGamma && Number.isFinite(tiltBase.gamma)) {
     horizontalDelta = angleDelta(e.gamma, tiltBase.gamma);
   } else {
     return;
   }
-  const verticalDelta = angleDelta(e.beta, tiltBase.beta);
+
+  let verticalDelta = 0;
+  if (gripMode === 'landscape' && hasGamma && Number.isFinite(tiltBase.gamma)) {
+    verticalDelta = angleDelta(e.gamma, tiltBase.gamma);
+  } else if (hasBeta && Number.isFinite(tiltBase.beta)) {
+    verticalDelta = angleDelta(e.beta, tiltBase.beta);
+  } else {
+    return;
+  }
+
   const xDirection = tiltInvertX ? -1 : 1;
   const yDirection = tiltInvertY ? 1 : -1;
-
-  // 約左右各旋轉 35°、上下各 25° 可從中心移到畫面邊緣。
   setAim(.5 + xDirection * horizontalDelta / 70, .5 + yDirection * verticalDelta / 50);
 }
+
 function recalibrateTilt() {
   tiltBase = null;
   setAim(.5,.5,true);
+}
+
+function setGripMode(mode) {
+  gripMode = mode === 'landscape' ? 'landscape' : 'portrait';
+  try { localStorage.setItem('classroomGameGripMode', gripMode); } catch {}
+  applyGripMode(true);
+}
+
+function setFireSide(side) {
+  fireSide = side === 'left' ? 'left' : 'right';
+  try { localStorage.setItem('classroomGameFireSide', fireSide); } catch {}
+  applyGripMode(false);
+}
+
+function applyGripMode(recalibrate = true) {
+  const landscape = gripMode === 'landscape';
+  const core = $('controllerCore');
+  core.classList.toggle('portrait-layout', !landscape);
+  core.classList.toggle('landscape-layout', landscape);
+  core.classList.toggle('fire-left', landscape && fireSide === 'left');
+  core.classList.toggle('fire-right', !landscape || fireSide === 'right');
+  document.body.classList.toggle('controller-landscape-mode', landscape);
+  $('fireSideChooser').classList.toggle('hidden', !landscape);
+
+  $('portraitModeBtn').classList.toggle('active', !landscape);
+  $('landscapeModeBtn').classList.toggle('active', landscape);
+  $('portraitModeBtn').setAttribute('aria-pressed', String(!landscape));
+  $('landscapeModeBtn').setAttribute('aria-pressed', String(landscape));
+  $('fireLeftBtn').classList.toggle('active', fireSide === 'left');
+  $('fireRightBtn').classList.toggle('active', fireSide === 'right');
+  $('fireLeftBtn').setAttribute('aria-pressed', String(fireSide === 'left'));
+  $('fireRightBtn').setAttribute('aria-pressed', String(fireSide === 'right'));
+
+  if (tiltEnabled && recalibrate) {
+    recalibrateTilt();
+    $('controllerHint').textContent = sensorInstruction('握持方式已切換，感應中心已重新校正。');
+  }
 }
 function angleDelta(a,b) { let d=a-b; while(d>180)d-=360; while(d<-180)d+=360; return d; }
 

@@ -35,36 +35,56 @@
 
           <div id="gameMessage" class="notice info">等待老師開始遊戲。</div>
 
-          <div class="aim-title-row">
-            <strong>瞄準控制</strong>
-            <button id="centerBtn" class="btn ghost small-btn">準星置中</button>
-          </div>
-          <div id="aimPad" class="aim-pad" aria-label="拖曳控制準星">
-            <div id="aimDot" class="aim-dot"></div>
-            <div class="aim-hint">在此拖曳準星<br><small>請看前方大螢幕瞄準</small></div>
+          <div class="grip-mode-bar" aria-label="手機握持方式">
+            <div class="grip-mode-group">
+              <span class="grip-label">手機握持</span>
+              <div class="segmented-control">
+                <button id="portraitModeBtn" type="button" class="segment-btn active" aria-pressed="true">直式</button>
+                <button id="landscapeModeBtn" type="button" class="segment-btn" aria-pressed="false">橫式</button>
+              </div>
+            </div>
+            <div id="fireSideChooser" class="grip-mode-group hidden">
+              <span class="grip-label">FIRE 位置</span>
+              <div class="segmented-control">
+                <button id="fireLeftBtn" type="button" class="segment-btn" aria-pressed="false">左側</button>
+                <button id="fireRightBtn" type="button" class="segment-btn active" aria-pressed="true">右側</button>
+              </div>
+            </div>
           </div>
 
-          <div class="controller-actions">
-            <div class="tilt-controls">
-              <button id="tiltBtn" class="btn ghost">啟用光線槍感應</button>
-              <div class="sensor-options">
-                <label class="tilt-option">
-                  <input id="invertXToggle" type="checkbox">
-                  <span>左右反轉</span>
-                </label>
-                <label class="tilt-option">
-                  <input id="invertYToggle" type="checkbox">
-                  <span>上下反轉</span>
-                </label>
+          <div id="controllerCore" class="controller-core portrait-layout fire-right">
+            <div class="aim-section">
+              <div class="aim-title-row">
+                <strong>瞄準控制</strong>
+                <button id="centerBtn" class="btn ghost small-btn">準星置中</button>
               </div>
-              <button id="recenterTiltBtn" class="btn ghost small-btn" disabled>重新校正感應</button>
+              <div id="aimPad" class="aim-pad" aria-label="拖曳控制準星">
+                <div id="aimDot" class="aim-dot"></div>
+                <div class="aim-hint">在此拖曳準星<br><small>請看前方大螢幕瞄準</small></div>
+              </div>
             </div>
+
             <button id="fireBtn" class="fire-btn" disabled>
               <span>FIRE</span>
               <small id="cooldownLabel">等待遊戲</small>
             </button>
           </div>
-          <div id="controllerHint" class="muted controller-hint">每次射擊至少間隔 1 秒。啟用光線槍感應後，左右「旋轉」手機來瞄準左右，抬高／壓低手機控制上下。</div>
+
+          <div class="tilt-controls sensor-panel">
+            <button id="tiltBtn" class="btn ghost">啟用光線槍感應</button>
+            <div class="sensor-options">
+              <label class="tilt-option">
+                <input id="invertXToggle" type="checkbox">
+                <span>左右反轉</span>
+              </label>
+              <label class="tilt-option">
+                <input id="invertYToggle" type="checkbox">
+                <span>上下反轉</span>
+              </label>
+            </div>
+            <button id="recenterTiltBtn" class="btn ghost small-btn" disabled>重新校正感應</button>
+          </div>
+          <div id="controllerHint" class="muted controller-hint">每次射擊至少間隔 1 秒。可使用拖曳瞄準，或啟用光線槍感應後用手機左右旋轉、上下抬壓來瞄準。</div>
         </div>
       </div>
     </section>
