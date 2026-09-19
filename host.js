@@ -11,8 +11,10 @@ const db = getDatabase(app);
 const $ = id => document.getElementById(id);
 const token = new URLSearchParams(location.search).get('t');
 
-const GAME_SECONDS = 60;
-const TARGET_LIFETIME = 5000;
+const DEFAULT_GAME_SECONDS = 60;
+const DEFAULT_TARGET_SECONDS = 8;
+let gameDurationSeconds = DEFAULT_GAME_SECONDS;
+let targetLifetimeMs = DEFAULT_TARGET_SECONDS * 1000;
 const MIN_TARGETS = 8;
 const MAX_TARGETS = 12;
 const HIT_RADIUS_PX = 58;
@@ -37,7 +39,7 @@ let targets = new Map();
 let desiredR = randInt(MIN_TARGETS, MAX_TARGETS);
 let desiredI = randInt(MIN_TARGETS, MAX_TARGETS);
 let round = {
-  status: 'waiting', roundId: null, startedAt: 0, endsAt: 0, remainingMs: GAME_SECONDS * 1000
+  status: 'waiting', roundId: null, startedAt: 0, endsAt: 0, remainingMs: DEFAULT_GAME_SECONDS * 1000
 };
 let engineTimer = null;
 let uiTimer = null;
@@ -72,6 +74,7 @@ async function boot() {
     $('hostGame').classList.remove('hidden');
     setFatal('ok', '教師控制端已連線。學生現在可以掃 QR Code 加入。');
 
+    initGameSettings();
     bindControls();
     subscribePlayers();
     subscribeScores();
@@ -83,6 +86,35 @@ async function boot() {
   } catch (err) {
     setFatal('error', err?.message || '無法開啟教師控制頁。');
   }
+}
+
+function initGameSettings() {
+  const lifetimeSelect = $('targetLifetimeSelect');
+  lifetimeSelect.replaceChildren();
+  for (let sec = 1; sec <= 15; sec++) {
+    const opt = document.createElement('option');
+    opt.value = String(sec);
+    opt.textContent = `${sec} 秒`;
+    if (sec === DEFAULT_TARGET_SECONDS) opt.selected = true;
+    lifetimeSelect.appendChild(opt);
+  }
+  $('gameDurationSelect').value = String(DEFAULT_GAME_SECONDS);
+  applySelectedSettings();
+  $('gameDurationSelect').addEventListener('change', applySelectedSettings);
+  $('targetLifetimeSelect').addEventListener('change', applySelectedSettings);
+}
+
+function applySelectedSettings() {
+  const sec = Number($('gameDurationSelect').value);
+  const life = Number($('targetLifetimeSelect').value);
+  if (Number.isFinite(sec) && [60,90,120,150].includes(sec)) gameDurationSeconds = sec;
+  if (Number.isFinite(life) && life >= 1 && life <= 15) targetLifetimeMs = life * 1000;
+  if (round.status === 'waiting' || round.status === 'finished') {
+    round.remainingMs = gameDurationSeconds * 1000;
+    $('timer').textContent = String(gameDurationSeconds);
+  }
+  $('startBtn').textContent = `開始 ${gameDurationSeconds} 秒`;
+  $('gameRuleSummary').textContent = `每個數字停留 ${Math.round(targetLifetimeMs/1000)} 秒｜射擊間隔至少 1 秒｜${gameDurationSeconds} 秒挑戰`;
 }
 
 function bindControls() {
@@ -167,6 +199,16 @@ function subscribeGameState() {
     if (!state) return;
     if (state.controllerUid === hostUid) return;
     // 若另一個教師控制頁接手，讓本頁同步狀態但不重新建立目標。
+    if (Number.isFinite(state.durationMs)) {
+      gameDurationSeconds = Math.max(1, Math.round(state.durationMs / 1000));
+      if ([60,90,120,150].includes(gameDurationSeconds)) $('gameDurationSelect').value = String(gameDurationSeconds);
+    }
+    if (Number.isFinite(state.targetLifetimeMs)) {
+      targetLifetimeMs = state.targetLifetimeMs;
+      const sec = Math.round(targetLifetimeMs / 1000);
+      if (sec >= 1 && sec <= 15) $('targetLifetimeSelect').value = String(sec);
+    }
+    applySelectedSettings();
     if (['waiting','paused','finished','closed'].includes(state.status)) {
       round.status = state.status;
       round.remainingMs = state.remainingMs ?? round.remainingMs;
@@ -189,8 +231,8 @@ async function startRound(resetScores) {
     status: 'running',
     roundId: crypto.randomUUID ? crypto.randomUUID() : `${now}-${Math.random()}`,
     startedAt: now,
-    endsAt: now + GAME_SECONDS * 1000,
-    remainingMs: GAME_SECONDS * 1000
+    endsAt: now + gameDurationSeconds * 1000,
+    remainingMs: gameDurationSeconds * 1000
   };
 
   if (resetScores) {
@@ -256,7 +298,7 @@ async function finishRound() {
   stopEngine(false);
   clearTargets();
   await writeGameState();
-  $('roundMessage').textContent = '60 秒結束！排行榜已保留。';
+  $('roundMessage').textContent = `${gameDurationSeconds} 秒結束！排行榜已保留。`;
   $('startOverlay').classList.remove('hidden');
   $('startOverlay').querySelector('strong').textContent = '時間到！';
   $('startOverlay').querySelector('span').textContent = '可查看排行榜，或按「重新開始」再玩一局。';
@@ -270,7 +312,8 @@ async function writeGameState() {
     startedAt: round.startedAt || null,
     endsAt: round.endsAt || null,
     remainingMs: Math.max(0, Math.round(round.remainingMs)),
-    durationMs: GAME_SECONDS * 1000,
+    durationMs: gameDurationSeconds * 1000,
+    targetLifetimeMs,
     controllerUid: hostUid,
     updatedAt: Date.now()
   });
@@ -329,7 +372,7 @@ function spawnTarget(kind) {
   const { x, y } = findSpawnPosition();
   const label = pickUniqueLabel(kind === 'rational' ? rationalPool : irrationalPool);
   const now = Date.now();
-  const target = { id, kind, label, x, y, spawnedAt: now, expiresAt: now + TARGET_LIFETIME };
+  const target = { id, kind, label, x, y, spawnedAt: now, expiresAt: now + targetLifetimeMs };
   targets.set(id, target);
 
   const el = document.createElement('div');
@@ -458,6 +501,8 @@ function updateControlState() {
   $('pauseBtn').disabled = !running;
   $('resumeBtn').classList.toggle('hidden', !paused);
   $('startBtn').disabled = running || paused;
+  $('gameDurationSelect').disabled = running || paused;
+  $('targetLifetimeSelect').disabled = running || paused;
   $('gameStatusBadge').className = `badge ${running ? 'active' : paused ? 'scheduled' : 'closed'}`;
   $('gameStatusBadge').textContent = running ? '進行中' : paused ? '暫停' : round.status === 'finished' ? '已結束' : '等待';
   updateFieldState();

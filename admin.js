@@ -4,7 +4,7 @@ import {
   onAuthStateChanged, signOut
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
 import {
-  getDatabase, ref, get, set, update, onValue
+  getDatabase, ref, get, update, onValue
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
 import { firebaseConfig } from './firebase-config.js';
 import { games } from './games.js';
@@ -15,6 +15,7 @@ const db = getDatabase(app);
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: 'select_account' });
 
+const HISTORY_RETENTION_MS = 30 * 24 * 60 * 60_000;
 const $ = (id) => document.getElementById(id);
 const loginBtn = $('loginBtn');
 const logoutBtn = $('logoutBtn');
@@ -36,10 +37,16 @@ const createRoomBtn = $('createRoomBtn');
 const createMessage = $('createMessage');
 const roomsEl = $('rooms');
 const refreshBtn = $('refreshBtn');
+const historyCount = $('historyCount');
+const historyRooms = $('historyRooms');
+const clearHistoryBtn = $('clearHistoryBtn');
 
 let currentUser = null;
 let isAdmin = false;
 let roomsUnsub = null;
+let historyUnsub = null;
+const archivingRooms = new Set();
+const pruningHistory = new Set();
 
 for (const game of games.filter(g => g.enabled)) {
   const option = document.createElement('option');
@@ -93,7 +100,7 @@ loginBtn.addEventListener('click', async () => {
       return;
     }
     if (err.code === 'auth/unauthorized-domain') {
-      setNotice('error', '目前網域尚未加入 Firebase Authentication 的 Authorized domains。部署到 GitHub Pages 後，把 <b>你的帳號.github.io</b> 加入允許網域即可。');
+      setNotice('error', '目前網域尚未加入 Firebase Authentication 的 Authorized domains。請把 <b>你的帳號.github.io</b> 加入允許網域。');
       return;
     }
     setNotice('error', `Google 登入失敗：${safeText(err.message)}`);
@@ -107,12 +114,17 @@ copyUidBtn.addEventListener('click', async () => {
   copyUidBtn.textContent = '已複製';
   setTimeout(() => copyUidBtn.textContent = '複製 UID', 1200);
 });
-refreshBtn.addEventListener('click', () => subscribeRooms(true));
+refreshBtn.addEventListener('click', () => {
+  subscribeRooms(true);
+  subscribeHistory(true);
+});
+clearHistoryBtn.addEventListener('click', clearAllHistory);
 
 onAuthStateChanged(auth, async (user) => {
   currentUser = user;
   isAdmin = false;
   if (roomsUnsub) { roomsUnsub(); roomsUnsub = null; }
+  if (historyUnsub) { historyUnsub(); historyUnsub = null; }
   createSection.classList.add('hidden');
   roomsSection.classList.add('hidden');
 
@@ -135,16 +147,17 @@ onAuthStateChanged(auth, async (user) => {
     const adminSnap = await get(ref(db, `admins/${user.uid}`));
     isAdmin = adminSnap.val() === true;
     if (isAdmin) {
-      setNotice('ok', '管理員身分驗證成功。你可以建立、延長與關閉遊戲房間。');
+      setNotice('ok', '管理員身分驗證成功。你可以建立、延長、關閉與清理遊戲房間。');
       createSection.classList.remove('hidden');
       roomsSection.classList.remove('hidden');
       subscribeRooms();
+      subscribeHistory();
     } else {
-      setNotice('warn', '已取得你的 UID，但這個帳號尚未列入管理員名單。請把上方 UID 提供給我，完成 Firebase 管理員設定後，這裡會自動開啟房間管理功能。');
+      setNotice('warn', '已取得你的 UID，但這個帳號尚未列入管理員名單。');
     }
   } catch (err) {
     if (err?.code === 'PERMISSION_DENIED' || /permission/i.test(err?.message || '')) {
-      setNotice('warn', '登入成功，UID 已取得。目前 Realtime Database 仍是鎖定模式／尚未套用管理中心 Security Rules，所以房間功能暫時不會開啟。請把 UID 提供給我即可進行下一步。');
+      setNotice('warn', '登入成功，但目前 Realtime Database 規則尚未允許管理中心讀取管理員資料。');
     } else {
       setNotice('error', `檢查管理員身分時發生錯誤：${safeText(err.message)}`);
     }
@@ -167,8 +180,11 @@ function randomToken(bytesLength = 18) {
 async function generateRoomCode() {
   for (let i = 0; i < 12; i++) {
     const code = randomChars(4);
-    const snap = await get(ref(db, `rooms/${code}`));
-    if (!snap.exists()) return code;
+    const [roomSnap, histSnap] = await Promise.all([
+      get(ref(db, `rooms/${code}`)),
+      get(ref(db, `roomHistory/${code}`))
+    ]);
+    if (!roomSnap.exists() && !histSnap.exists()) return code;
   }
   throw new Error('無法產生唯一房間碼，請再試一次。');
 }
@@ -254,18 +270,52 @@ function subscribeRooms(force = false) {
   if (!currentUser || !isAdmin) return;
   if (roomsUnsub && !force) return;
   if (roomsUnsub) { roomsUnsub(); roomsUnsub = null; }
-  const roomsRef = ref(db, 'rooms');
-  roomsUnsub = onValue(roomsRef, snap => {
+  roomsUnsub = onValue(ref(db, 'rooms'), snap => {
     const data = snap.val() || {};
-    renderRooms(Object.values(data));
+    const allRooms = Object.values(data);
+    const liveRooms = [];
+    for (const room of allRooms) {
+      const [state] = roomState(room);
+      if (state === 'closed' || state === 'expired') {
+        const reason = state === 'expired' ? 'expired' : 'closed';
+        archiveAndCleanupRoom(room, reason, { silent: true }).catch(() => {});
+      } else {
+        liveRooms.push(room);
+      }
+    }
+    renderRooms(liveRooms);
   }, err => {
     roomsEl.innerHTML = `<div class="notice error">讀取房間失敗：${safeText(err.message)}</div>`;
   });
 }
 
+function subscribeHistory(force = false) {
+  if (!currentUser || !isAdmin) return;
+  if (historyUnsub && !force) return;
+  if (historyUnsub) { historyUnsub(); historyUnsub = null; }
+  historyUnsub = onValue(ref(db, 'roomHistory'), snap => {
+    const data = snap.val() || {};
+    const records = Object.values(data);
+    const cutoff = Date.now() - HISTORY_RETENTION_MS;
+    for (const record of records) {
+      const endedAt = Number(record.endedAt || record.archivedAt || 0);
+      if (endedAt && endedAt < cutoff) {
+        pruneHistoryRecord(record.roomCode).catch(() => {});
+      }
+    }
+    const visible = records.filter(r => {
+      const endedAt = Number(r.endedAt || r.archivedAt || 0);
+      return !endedAt || endedAt >= cutoff;
+    });
+    renderHistory(visible);
+  }, err => {
+    historyRooms.innerHTML = `<div class="notice error">讀取歷史房間失敗：${safeText(err.message)}</div>`;
+  });
+}
+
 function renderRooms(rooms) {
   if (!rooms.length) {
-    roomsEl.innerHTML = '<div class="muted">目前尚無房間。</div>';
+    roomsEl.innerHTML = '<div class="muted empty-state">目前沒有尚未開放或使用中的房間。</div>';
     return;
   }
   rooms.sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -295,16 +345,47 @@ function renderRooms(rooms) {
         <select class="extend-select" style="width:auto; min-width:150px">
           <option value="1">延長 1 小時</option><option value="3">延長 3 小時</option><option value="6">延長 6 小時</option><option value="12">延長 12 小時</option><option value="24">延長 24 小時</option><option value="27">延長 27 小時</option><option value="48">延長 48 小時</option>
         </select>
-        <button class="btn success extend-btn" ${stateClass==='closed'?'disabled':''}>延長</button>
-        <button class="btn danger close-btn" ${stateClass==='closed'?'disabled':''}>立即關閉</button>
+        <button class="btn success extend-btn">延長</button>
+        <button class="btn danger close-btn">立即關閉</button>
       </div>`;
     const qr = el.querySelector('.qr');
     if (window.QRCode) new QRCode(qr, { text: studentUrl, width: 134, height: 134 });
     el.querySelector('.copy-student').addEventListener('click', e => copyText(studentUrl, e.currentTarget));
     el.querySelector('.copy-host').addEventListener('click', e => copyText(hostUrl, e.currentTarget));
     el.querySelector('.extend-btn').addEventListener('click', () => extendRoom(room, Number(el.querySelector('.extend-select').value)));
-    el.querySelector('.close-btn').addEventListener('click', () => closeRoom(room));
+    el.querySelector('.close-btn').addEventListener('click', () => archiveAndCleanupRoom(room, 'closed'));
     roomsEl.appendChild(el);
+  }
+}
+
+function renderHistory(records) {
+  records.sort((a,b) => Number(b.endedAt || b.archivedAt || 0) - Number(a.endedAt || a.archivedAt || 0));
+  historyCount.textContent = String(records.length);
+  clearHistoryBtn.disabled = records.length === 0;
+  if (!records.length) {
+    historyRooms.innerHTML = '<div class="muted empty-state">尚無歷史房間。</div>';
+    return;
+  }
+  historyRooms.innerHTML = '';
+  for (const record of records) {
+    const reasonText = record.reason === 'expired' ? '自動到期' : '已關閉';
+    const el = document.createElement('article');
+    el.className = 'history-room';
+    el.innerHTML = `
+      <div class="history-main">
+        <div><b class="room-code">${safeText(record.roomCode)}</b><span>${safeText(record.gameName || record.gameId || '遊戲')}</span></div>
+        <span class="badge closed">${reasonText}</span>
+      </div>
+      <div class="history-meta">
+        <span>建立：${formatDate(record.createdAt)}</span>
+        <span>開放：${formatDate(record.opensAt)}</span>
+        <span>結束：${formatDate(record.endedAt || record.archivedAt)}</span>
+      </div>
+      <button class="btn ghost delete-history">刪除紀錄</button>`;
+    el.querySelector('.delete-history').addEventListener('click', () => {
+      if (confirm(`確定刪除歷史房間 ${record.roomCode} 的紀錄？`)) pruneHistoryRecord(record.roomCode);
+    });
+    historyRooms.appendChild(el);
   }
 }
 
@@ -325,14 +406,60 @@ async function extendRoom(room, hours) {
   await update(ref(db), updates);
 }
 
-async function closeRoom(room) {
-  if (!confirm(`確定立即關閉房間 ${room.roomCode}？關閉後舊 QR Code 將失效。`)) return;
+async function archiveAndCleanupRoom(room, reason = 'closed', options = {}) {
+  if (!room?.roomCode || archivingRooms.has(room.roomCode)) return;
+  if (!options.silent && !confirm(`確定立即關閉房間 ${room.roomCode}？學生與教師連結會立刻失效，遊戲即時資料會被清除。`)) return;
+  archivingRooms.add(room.roomCode);
+  try {
+    const endedAt = reason === 'expired' ? Number(room.expiresAt || Date.now()) : Date.now();
+    const history = {
+      roomCode: room.roomCode,
+      gameId: room.gameId || '',
+      gameName: room.gameName || '',
+      status: 'history',
+      reason,
+      createdAt: Number(room.createdAt || 0),
+      opensAt: Number(room.opensAt || 0),
+      expiresAt: Number(room.expiresAt || 0),
+      endedAt,
+      archivedAt: Date.now()
+    };
+    const updates = {};
+    updates[`roomHistory/${room.roomCode}`] = history;
+    updates[`rooms/${room.roomCode}`] = null;
+    if (room.joinToken) updates[`joinPasses/${room.joinToken}`] = null;
+    if (room.hostToken) updates[`hostPasses/${room.hostToken}`] = null;
+    updates[`roomHosts/${room.roomCode}`] = null;
+    updates[`seatClaims/${room.roomCode}`] = null;
+    updates[`playerAccess/${room.roomCode}`] = null;
+    updates[`playerAim/${room.roomCode}`] = null;
+    updates[`playerShots/${room.roomCode}`] = null;
+    updates[`gameState/${room.roomCode}`] = null;
+    updates[`scores/${room.roomCode}`] = null;
+    await update(ref(db), updates);
+  } catch (err) {
+    if (!options.silent) alert(`清理房間失敗：${err?.message || err}`);
+  } finally {
+    archivingRooms.delete(room.roomCode);
+  }
+}
+
+async function pruneHistoryRecord(roomCode) {
+  if (!roomCode || pruningHistory.has(roomCode)) return;
+  pruningHistory.add(roomCode);
+  try {
+    await update(ref(db), { [`roomHistory/${roomCode}`]: null });
+  } finally {
+    pruningHistory.delete(roomCode);
+  }
+}
+
+async function clearAllHistory() {
+  if (!currentUser || !isAdmin) return;
+  const snap = await get(ref(db, 'roomHistory'));
+  if (!snap.exists()) return;
+  if (!confirm('確定清除全部歷史房間紀錄？這不會影響目前使用中的房間。')) return;
   const updates = {};
-  updates[`rooms/${room.roomCode}/status`] = 'closed';
-  updates[`rooms/${room.roomCode}/closedAt`] = Date.now();
-  updates[`joinPasses/${room.joinToken}/status`] = 'closed';
-  updates[`hostPasses/${room.hostToken}/status`] = 'closed';
-  updates[`gameState/${room.roomCode}/status`] = 'closed';
-  updates[`gameState/${room.roomCode}/updatedAt`] = Date.now();
+  for (const roomCode of Object.keys(snap.val() || {})) updates[`roomHistory/${roomCode}`] = null;
   await update(ref(db), updates);
 }

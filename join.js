@@ -28,7 +28,9 @@ let lastPointer = null;
 let tiltEnabled = false;
 let tiltBase = null;
 let lastTiltUpdate = 0;
+let tiltInvertX = false;
 let tiltInvertY = false;
+let sensorMode = 'yaw';
 
 async function boot() {
   try {
@@ -154,21 +156,33 @@ function bindController() {
   $('fireBtn').addEventListener('click', fire);
   $('tiltBtn').addEventListener('click', enableTilt);
 
-  // 每支手機可自行決定傾斜瞄準的上下方向；偏好保存在該手機瀏覽器。
-  try { tiltInvertY = localStorage.getItem('classroomGameTiltInvertY') === '1'; } catch {}
+  // 每支手機可自行反轉水平／垂直方向；偏好保存在該手機瀏覽器。
+  try {
+    tiltInvertX = localStorage.getItem('classroomGameTiltInvertX') === '1';
+    tiltInvertY = localStorage.getItem('classroomGameTiltInvertY') === '1';
+  } catch {}
+  $('invertXToggle').checked = tiltInvertX;
   $('invertYToggle').checked = tiltInvertY;
+  $('invertXToggle').addEventListener('change', () => {
+    tiltInvertX = $('invertXToggle').checked;
+    try { localStorage.setItem('classroomGameTiltInvertX', tiltInvertX ? '1' : '0'); } catch {}
+    if (tiltEnabled) {
+      recalibrateTilt();
+      $('controllerHint').textContent = `左右方向已${tiltInvertX ? '反轉' : '恢復正常'}，並重新校正準星中心。`;
+    }
+  });
   $('invertYToggle').addEventListener('change', () => {
     tiltInvertY = $('invertYToggle').checked;
     try { localStorage.setItem('classroomGameTiltInvertY', tiltInvertY ? '1' : '0'); } catch {}
     if (tiltEnabled) {
       recalibrateTilt();
-      $('controllerHint').textContent = `已切換為${tiltInvertY ? '上下反轉' : '正常上下方向'}，並重新校正準星中心。`;
+      $('controllerHint').textContent = `上下方向已${tiltInvertY ? '反轉' : '恢復正常'}，並重新校正準星中心。`;
     }
   });
   $('recenterTiltBtn').addEventListener('click', () => {
     if (!tiltEnabled) return;
     recalibrateTilt();
-    $('controllerHint').textContent = '傾斜瞄準已重新校正：請保持目前握姿，接著移動手機瞄準。';
+    $('controllerHint').textContent = '光線槍感應已重新校正：請把手機朝向螢幕中央，再開始左右旋轉與上下瞄準。';
   });
 }
 
@@ -211,23 +225,49 @@ async function enableTilt() {
       const r = await DeviceOrientationEvent.requestPermission();
       if (r !== 'granted') throw new Error('未取得方向感測器權限。');
     }
-    tiltBase=null; tiltEnabled=true;
+    tiltBase=null; tiltEnabled=true; sensorMode='yaw';
     window.addEventListener('deviceorientation', onOrientation, { passive:true });
-    $('tiltBtn').textContent='傾斜瞄準已啟用';
+    $('tiltBtn').textContent='光線槍感應已啟用';
     $('tiltBtn').disabled=true;
     $('recenterTiltBtn').disabled=false;
-    $('controllerHint').textContent = `傾斜瞄準已啟用（${tiltInvertY ? '上下反轉' : '正常上下方向'}）。若準星方向不直覺，可切換「上下反轉」。`;
+    $('controllerHint').textContent = '請先把手機朝向螢幕中央並保持自然握姿；系統會以第一次感測姿勢為中心。左右旋轉手機控制左右，抬高／壓低控制上下。';
   } catch (e) {
-    $('controllerHint').textContent=`傾斜瞄準無法啟用：${e?.message || '不支援'}。仍可使用拖曳瞄準。`;
+    $('controllerHint').textContent=`光線槍感應無法啟用：${e?.message || '不支援'}。仍可使用拖曳瞄準。`;
   }
 }
 function onOrientation(e) {
-  if (!tiltEnabled || !Number.isFinite(e.gamma) || !Number.isFinite(e.beta)) return;
+  if (!tiltEnabled || !Number.isFinite(e.beta)) return;
   const now=Date.now(); if (now-lastTiltUpdate<70) return; lastTiltUpdate=now;
-  if (!tiltBase) { tiltBase={gamma:e.gamma,beta:e.beta}; return; }
-  const dg = angleDelta(e.gamma,tiltBase.gamma), db = angleDelta(e.beta,tiltBase.beta);
-  const yDirection = tiltInvertY ? -1 : 1;
-  setAim(.5 + dg/52, .5 + yDirection*db/52);
+
+  const hasYaw = Number.isFinite(e.alpha);
+  const hasFallback = Number.isFinite(e.gamma);
+  if (!hasYaw && !hasFallback) return;
+
+  if (!tiltBase) {
+    sensorMode = hasYaw ? 'yaw' : 'fallback';
+    tiltBase = { alpha: hasYaw ? e.alpha : null, gamma: hasFallback ? e.gamma : null, beta: e.beta };
+    setAim(.5,.5,true);
+    $('controllerHint').textContent = sensorMode === 'yaw'
+      ? '已校正。左右請「旋轉」手機像光線槍一樣瞄準；上下請抬高／壓低手機。'
+      : '此手機未提供方位角，已改用左右傾斜備援模式；仍可正常射擊。';
+    return;
+  }
+
+  let horizontalDelta;
+  if (sensorMode === 'yaw' && hasYaw && Number.isFinite(tiltBase.alpha)) {
+    // alpha 是手機方位角；用相對角度讓手機左右旋轉更像光線槍。
+    horizontalDelta = -angleDelta(e.alpha, tiltBase.alpha);
+  } else if (hasFallback && Number.isFinite(tiltBase.gamma)) {
+    horizontalDelta = angleDelta(e.gamma, tiltBase.gamma);
+  } else {
+    return;
+  }
+  const verticalDelta = angleDelta(e.beta, tiltBase.beta);
+  const xDirection = tiltInvertX ? -1 : 1;
+  const yDirection = tiltInvertY ? 1 : -1;
+
+  // 約左右各旋轉 35°、上下各 25° 可從中心移到畫面邊緣。
+  setAim(.5 + xDirection * horizontalDelta / 70, .5 + yDirection * verticalDelta / 50);
 }
 function recalibrateTilt() {
   tiltBase = null;

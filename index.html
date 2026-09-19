@@ -75,10 +75,21 @@
 
     <section id="roomsSection" class="card hidden">
       <div class="room-head">
-        <h2>目前房間</h2>
+        <div>
+          <h2>目前房間</h2>
+          <div class="muted room-help">只顯示尚未開放與使用中的房間；關閉或到期後會自動清理遊戲即時資料。</div>
+        </div>
         <button id="refreshBtn" class="btn ghost">重新整理</button>
       </div>
       <div id="rooms" class="rooms"><div class="muted">尚無房間。</div></div>
+      <details id="historyDetails" class="history-details">
+        <summary><span>歷史房間</span><span id="historyCount" class="badge closed">0</span></summary>
+        <div class="history-toolbar">
+          <span class="muted">歷史紀錄只保留房間名稱與時間等少量資料，30 天後自動刪除。</span>
+          <button id="clearHistoryBtn" class="btn danger">清除全部歷史</button>
+        </div>
+        <div id="historyRooms" class="history-rooms"><div class="muted">尚無歷史房間。</div></div>
+      </details>
     </section>
 
     <footer>此網站預計部署於 GitHub Pages；Firebase 負責登入與房間即時資料。</footer>
