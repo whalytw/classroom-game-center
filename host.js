@@ -5,7 +5,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const app = initializeApp(firebaseConfig);
+const app = initializeApp(firebaseConfig, 'host-control');
 const auth = getAuth(app);
 const db = getDatabase(app);
 const $ = id => document.getElementById(id);
