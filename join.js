@@ -28,6 +28,7 @@ let lastPointer = null;
 let tiltEnabled = false;
 let tiltBase = null;
 let lastTiltUpdate = 0;
+let tiltInvertY = false;
 
 async function boot() {
   try {
@@ -152,6 +153,23 @@ function bindController() {
   $('centerBtn').addEventListener('click', () => setAim(.5,.5,true));
   $('fireBtn').addEventListener('click', fire);
   $('tiltBtn').addEventListener('click', enableTilt);
+
+  // 每支手機可自行決定傾斜瞄準的上下方向；偏好保存在該手機瀏覽器。
+  try { tiltInvertY = localStorage.getItem('classroomGameTiltInvertY') === '1'; } catch {}
+  $('invertYToggle').checked = tiltInvertY;
+  $('invertYToggle').addEventListener('change', () => {
+    tiltInvertY = $('invertYToggle').checked;
+    try { localStorage.setItem('classroomGameTiltInvertY', tiltInvertY ? '1' : '0'); } catch {}
+    if (tiltEnabled) {
+      recalibrateTilt();
+      $('controllerHint').textContent = `已切換為${tiltInvertY ? '上下反轉' : '正常上下方向'}，並重新校正準星中心。`;
+    }
+  });
+  $('recenterTiltBtn').addEventListener('click', () => {
+    if (!tiltEnabled) return;
+    recalibrateTilt();
+    $('controllerHint').textContent = '傾斜瞄準已重新校正：請保持目前握姿，接著移動手機瞄準。';
+  });
 }
 
 function setAim(x,y,force=false) {
@@ -197,6 +215,8 @@ async function enableTilt() {
     window.addEventListener('deviceorientation', onOrientation, { passive:true });
     $('tiltBtn').textContent='傾斜瞄準已啟用';
     $('tiltBtn').disabled=true;
+    $('recenterTiltBtn').disabled=false;
+    $('controllerHint').textContent = `傾斜瞄準已啟用（${tiltInvertY ? '上下反轉' : '正常上下方向'}）。若準星方向不直覺，可切換「上下反轉」。`;
   } catch (e) {
     $('controllerHint').textContent=`傾斜瞄準無法啟用：${e?.message || '不支援'}。仍可使用拖曳瞄準。`;
   }
@@ -206,7 +226,12 @@ function onOrientation(e) {
   const now=Date.now(); if (now-lastTiltUpdate<70) return; lastTiltUpdate=now;
   if (!tiltBase) { tiltBase={gamma:e.gamma,beta:e.beta}; return; }
   const dg = angleDelta(e.gamma,tiltBase.gamma), db = angleDelta(e.beta,tiltBase.beta);
-  setAim(.5 + dg/52, .5 + db/52);
+  const yDirection = tiltInvertY ? -1 : 1;
+  setAim(.5 + dg/52, .5 + yDirection*db/52);
+}
+function recalibrateTilt() {
+  tiltBase = null;
+  setAim(.5,.5,true);
 }
 function angleDelta(a,b) { let d=a-b; while(d>180)d-=360; while(d<-180)d+=360; return d; }
 

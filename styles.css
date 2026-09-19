@@ -141,7 +141,10 @@ footer { color:var(--muted); font-size:.9rem; padding:8px 0 30px; }
 .aim-dot::before { width:22px; height:2px; }.aim-dot::after { width:2px; height:22px; }
 .aim-hint { position:absolute; inset:0; display:grid; place-items:center; text-align:center; color:#64748b; font-weight:700; pointer-events:none; }
 .aim-hint small { font-weight:500; }
-.controller-actions { display:grid; grid-template-columns:1fr 1.35fr; gap:10px; margin-top:12px; }
+.controller-actions { display:grid; grid-template-columns:1fr 1.35fr; gap:10px; margin-top:12px; align-items:stretch; }
+.tilt-controls { display:grid; gap:8px; align-content:start; }
+.tilt-option { display:flex; align-items:center; gap:9px; min-height:44px; margin:0; padding:8px 10px; border:1px solid var(--border); border-radius:10px; background:#fff; font-weight:700; }
+.tilt-option input { width:20px; height:20px; min-height:0; flex:0 0 auto; }
 .fire-btn { border:0; border-radius:18px; min-height:92px; background:#dc2626; color:white; font-weight:900; box-shadow:0 7px 0 #991b1b; touch-action:manipulation; }
 .fire-btn:active:not(:disabled) { transform:translateY(4px); box-shadow:0 3px 0 #991b1b; }
 .fire-btn:disabled { background:#94a3b8; box-shadow:0 7px 0 #64748b; }
