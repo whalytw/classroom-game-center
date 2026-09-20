@@ -14,6 +14,10 @@
         <div class="eyebrow">Classroom Game Center</div>
         <div class="host-title-line">
           <h1 id="gameTitle">正在載入遊戲…</h1>
+          <div class="game-mode-switch" role="group" aria-label="遊戲模式">
+            <button id="singleModeBtn" type="button" class="mode-btn active" aria-pressed="true">單人模式</button>
+            <button id="coopModeBtn" type="button" class="mode-btn" aria-pressed="false">合作模式</button>
+          </div>
           <span class="host-room-pill">房間 <b id="roomCode">—</b></span>
           <span id="hostStatus" class="host-status-pill">驗證中…</span>
         </div>
@@ -38,18 +42,22 @@
               <option value="150">150 秒</option>
             </select>
           </label>
-          <label class="host-setting mini-setting">
+          <label class="host-setting mini-setting single-only">
             <span>停留</span>
             <select id="targetLifetimeSelect"></select>
           </label>
-          <label class="host-setting mini-setting">
+          <label class="host-setting mini-setting single-only">
             <span>有理數</span>
             <select id="rationalCountSelect"></select>
           </label>
-          <label class="host-setting mini-setting">
+          <label class="host-setting mini-setting single-only">
             <span>無理數</span>
             <select id="irrationalCountSelect"></select>
           </label>
+          <div class="host-setting mini-setting coop-only hidden sound-setting">
+            <span>音效</span>
+            <label class="inline-switch"><input id="soundToggle" type="checkbox" checked> 開啟</label>
+          </div>
           <label class="host-setting mini-setting theme-setting">
             <span>配色</span>
             <select id="themeSelect">
@@ -72,8 +80,15 @@
         <main class="game-main-column">
           <div id="gameField" class="game-field" aria-label="遊戲主畫面">
             <div class="field-hud">
-              <span class="hud-pill rational-pill">射擊有理數 +1</span>
+              <span id="modeGoalLabel" class="hud-pill rational-pill">射擊有理數 +1</span>
               <span id="fieldState" class="hud-pill">等待開始</span>
+            </div>
+            <div id="coopBoardLayer" class="coop-board-layer hidden" aria-hidden="true">
+              <div id="coopTable" class="coop-table"></div>
+              <div id="coopCardsLayer" class="coop-cards-layer"></div>
+              <div id="coopBombLayer" class="coop-bomb-layer"></div>
+              <div id="coopTeamHud" class="coop-team-hud hidden">團隊分數 <strong id="coopTeamScore">0</strong></div>
+              <div id="coopSuccessStamp" class="coop-success-stamp hidden">成功</div>
             </div>
             <div id="targetsLayer" class="targets-layer"></div>
             <div id="crosshairsLayer" class="crosshairs-layer"></div>
@@ -89,7 +104,7 @@
 
         <aside class="score-panel card compact-card">
           <div class="score-head">
-            <h2>即時排行榜</h2>
+            <h2 id="scorePanelTitle">即時排行榜</h2>
             <span id="gameStatusBadge" class="badge scheduled">等待</span>
           </div>
           <div class="fullscreen-game-controls" aria-label="全螢幕遊戲控制">
@@ -123,7 +138,7 @@
                 <option value="12">12 人</option>
               </select>
             </label>
-            <button id="randomGroupBtn" class="btn ghost tiny-btn" type="button">亂數分組</button>
+            <button id="randomGroupBtn" class="btn ghost tiny-btn" type="button">重新亂數分組</button>
           </div>
           <div class="player-control-toolbar">
             <span id="activeCount" class="muted">本局 0 人</span>

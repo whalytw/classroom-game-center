@@ -686,3 +686,197 @@ footer { color:var(--muted); font-size:.9rem; padding:8px 0 30px; }
 .game-stage.theme-tech .player-group-block { border-color:#244d63; }
 .game-stage.theme-tech .player-group-head { color:#91adbf; }
 .game-stage.theme-tech .player-group-head strong { color:#e8f7ff; }
+
+/* ===== v2.9 單人 / 合作模式 ===== */
+.game-mode-switch {
+  display:inline-flex;
+  gap:2px;
+  padding:3px;
+  border:1px solid var(--border);
+  border-radius:11px;
+  background:#fff;
+}
+.mode-btn {
+  border:0;
+  border-radius:8px;
+  min-height:32px;
+  padding:5px 10px;
+  background:transparent;
+  color:#475569;
+  font-weight:800;
+  font-size:.78rem;
+}
+.mode-btn.active { background:var(--primary); color:#fff; }
+.mode-btn:disabled { opacity:.5; cursor:not-allowed; }
+.inline-switch { display:flex !important; align-items:center; gap:6px; margin:0 !important; min-height:38px; padding:0 6px; border:1px solid var(--border); border-radius:9px; background:#fff; font-size:.82rem !important; color:var(--text) !important; }
+.inline-switch input { width:18px; height:18px; min-height:0; margin:0; }
+
+.coop-board-layer {
+  position:absolute;
+  inset:0;
+  z-index:4;
+  pointer-events:none;
+  overflow:hidden;
+}
+.coop-table {
+  position:absolute;
+  left:3%; right:14%; top:3.5%; bottom:3.5%;
+  border:3px solid rgba(91,112,136,.78);
+  border-radius:22px;
+  background:linear-gradient(145deg, rgba(255,255,255,.40), rgba(222,232,243,.30));
+  box-shadow:inset 0 0 32px rgba(15,23,42,.08);
+}
+.coop-cards-layer,.coop-bomb-layer { position:absolute; inset:0; }
+.coop-pass-card,
+.coop-number-card {
+  position:absolute;
+  transform:translate(-50%,-50%);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:14px;
+  white-space:nowrap;
+  user-select:none;
+}
+.coop-pass-card {
+  width:68px;
+  height:52px;
+  background:#fff8d9;
+  border:3px solid #c48a13;
+  color:#7c4a03;
+  font-size:1.55rem;
+  font-weight:950;
+  box-shadow:0 6px 15px rgba(15,23,42,.15);
+}
+.coop-number-card {
+  min-width:86px;
+  min-height:56px;
+  padding:8px 12px;
+  background:#fff;
+  border:2px solid #64748b;
+  color:#172033;
+  font-size:clamp(1rem,1.7vw,1.48rem);
+  font-weight:900;
+  box-shadow:0 5px 14px rgba(15,23,42,.18);
+  transition:opacity .28s ease, transform .28s ease;
+}
+.coop-number-card.coop-card-remove {
+  opacity:0;
+  transform:translate(-50%,-50%) scale(.18) rotate(-5deg);
+}
+.coop-number-card .math-frac { font-size:.92em; }
+.coop-number-card .math-radical { font-size:.96em; }
+.coop-number-card .repetend { line-height:1; }
+.coop-bomb-card {
+  position:absolute;
+  transform:translate(-50%,-50%);
+  width:92px;
+  min-height:78px;
+  border-radius:18px;
+  border:2px solid #ef4444;
+  background:linear-gradient(145deg,#2b1b22,#130b0f);
+  color:#fff;
+  display:grid;
+  place-items:center;
+  align-content:center;
+  gap:1px;
+  box-shadow:0 0 22px rgba(239,68,68,.28),0 8px 18px rgba(0,0,0,.25);
+  z-index:260;
+}
+.coop-bomb-card .bomb-icon { font-size:1.85rem; line-height:1; }
+.coop-bomb-card b { font-size:.78rem; letter-spacing:.06em; }
+.coop-bomb-card em { position:absolute; right:-8px; top:-9px; min-width:25px; height:25px; border-radius:999px; background:#ef4444; display:grid; place-items:center; font-style:normal; font-size:.72rem; font-weight:900; }
+.coop-team-hud {
+  position:absolute;
+  right:2.2%;
+  top:64px;
+  z-index:270;
+  width:104px;
+  padding:8px 7px;
+  border-radius:14px;
+  border:1px solid rgba(37,99,235,.45);
+  background:rgba(255,255,255,.92);
+  color:#1e3a8a;
+  text-align:center;
+  font-size:.72rem;
+  font-weight:800;
+  box-shadow:0 6px 18px rgba(15,23,42,.12);
+}
+.coop-team-hud strong { display:block; font-size:1.75rem; color:#172033; line-height:1.05; }
+.coop-success-stamp {
+  position:absolute;
+  left:48%; top:48%;
+  transform:translate(-50%,-50%) rotate(-10deg) scale(.2);
+  z-index:400;
+  border:8px double #dc2626;
+  border-radius:18px;
+  padding:14px 28px;
+  color:#dc2626;
+  background:rgba(255,255,255,.80);
+  font-size:clamp(3rem,8vw,7rem);
+  font-weight:1000;
+  letter-spacing:.12em;
+  opacity:0;
+  text-shadow:0 2px 0 #fff;
+}
+.coop-success-stamp.stamp-animate { animation:coop-stamp .72s cubic-bezier(.2,1.5,.35,1) forwards; }
+@keyframes coop-stamp { 0%{opacity:0;transform:translate(-50%,-50%) rotate(-18deg) scale(1.8)} 55%{opacity:1;transform:translate(-50%,-50%) rotate(-9deg) scale(.9)} 75%{transform:translate(-50%,-50%) rotate(-11deg) scale(1.08)} 100%{opacity:1;transform:translate(-50%,-50%) rotate(-10deg) scale(1)} }
+.coop-float-notice {
+  position:absolute;
+  left:50%; top:12%;
+  transform:translateX(-50%);
+  z-index:450;
+  padding:8px 15px;
+  border-radius:999px;
+  background:rgba(15,23,42,.88);
+  color:#fff;
+  font-weight:850;
+  font-size:.92rem;
+  animation:coop-notice 1.4s ease forwards;
+  white-space:nowrap;
+}
+@keyframes coop-notice { 0%{opacity:0;transform:translate(-50%,-10px)} 12%,70%{opacity:1;transform:translate(-50%,0)} 100%{opacity:0;transform:translate(-50%,-16px)} }
+.coop-smoke {
+  position:absolute;
+  z-index:430;
+  transform:translate(-50%,-50%);
+  width:20px; height:20px;
+  pointer-events:none;
+}
+.coop-smoke i { position:absolute; width:28px; height:28px; border-radius:50%; background:rgba(255,255,255,.92); filter:blur(1px); animation:smoke-puff .85s ease-out forwards; }
+.coop-smoke i:nth-child(2){left:-13px;top:4px;animation-delay:.05s}.coop-smoke i:nth-child(3){left:12px;top:-4px;animation-delay:.1s}
+@keyframes smoke-puff { from{opacity:.95;transform:scale(.5)} to{opacity:0;transform:translateY(-24px) scale(2.1)} }
+.coop-shake .coop-table,.coop-shake .coop-cards-layer { animation:coop-shake .58s ease; }
+@keyframes coop-shake { 0%,100%{transform:translate(0,0)} 15%{transform:translate(-5px,2px)} 30%{transform:translate(5px,-3px)} 45%{transform:translate(-4px,-2px)} 60%{transform:translate(4px,3px)} 75%{transform:translate(-2px,1px)} }
+.shot-effect.bomb { background:#2b1b22; color:#fff; border:1px solid #ef4444; }
+.coop-progress-panel { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:9px; }
+.coop-progress-panel > div { border:1px solid var(--border); border-radius:10px; background:#f8fafc; text-align:center; padding:7px 5px; }
+.coop-progress-panel span { display:block; color:var(--muted); font-size:.68rem; }
+.coop-progress-panel strong { display:block; font-size:1.25rem; }
+
+.game-stage.theme-tech .coop-table { border-color:#1f789e; background:linear-gradient(145deg,rgba(7,34,51,.58),rgba(2,13,23,.55)); box-shadow:inset 0 0 34px rgba(0,190,255,.08); }
+.game-stage.theme-tech .coop-pass-card { background:#2b270d; border-color:#facc15; color:#fff1a8; }
+.game-stage.theme-tech .coop-number-card { background:#0a1a2b; border-color:#66d9ff; color:#f2fbff; box-shadow:0 0 14px rgba(44,190,255,.12),0 7px 18px rgba(0,0,0,.38); }
+.game-stage.theme-tech .coop-team-hud { background:rgba(4,21,34,.93); border-color:#1f789e; color:#8eeaff; }
+.game-stage.theme-tech .coop-team-hud strong { color:#fff; }
+.game-stage.theme-tech .coop-progress-panel > div { background:#0c2032; border-color:#244d63; }
+.game-stage.theme-tech .coop-progress-panel span { color:#91adbf; }
+.game-stage.theme-tech .coop-progress-panel strong { color:#e8f7ff; }
+.game-stage.theme-tech .game-mode-switch { background:#071321; border-color:#31576d; }
+.game-stage.theme-tech .mode-btn { color:#9fc3d9; }
+.game-stage.theme-tech .mode-btn.active { background:#0f6f92; color:#eaffff; }
+
+@media (max-width:900px) {
+  .coop-number-card { min-width:70px; min-height:48px; padding:6px 8px; }
+  .coop-bomb-card { width:74px; min-height:68px; }
+  .coop-team-hud { width:82px; }
+}
+
+/* 合作模式卡片沿用課本式數學排版 */
+.coop-number-card .math-frac { display:inline-grid; grid-template-rows:auto auto; align-items:center; justify-items:center; vertical-align:middle; min-width:1.45em; margin:0 .05em; font-size:.94em; }
+.coop-number-card .math-num { width:100%; text-align:center; border-bottom:2px solid currentColor; padding:0 .14em .07em; line-height:1; }
+.coop-number-card .math-den { width:100%; text-align:center; padding:.07em .14em 0; line-height:1; }
+.coop-number-card .repetend { display:inline-block; border-top:2px solid currentColor; padding-top:.05em; line-height:.95; }
+.coop-number-card .math-radical { display:inline-flex; align-items:flex-start; white-space:nowrap; vertical-align:middle; }
+.coop-number-card .root-symbol { display:inline-block; font-size:1.08em; line-height:1.04; margin-right:-.08em; }
+.coop-number-card .radicand { display:inline-block; border-top:2px solid currentColor; padding:.03em .08em 0 .10em; line-height:1.02; }

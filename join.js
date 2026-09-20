@@ -33,6 +33,7 @@ let tiltInvertX = false;
 let tiltInvertY = false;
 let sensorMode = 'yaw';
 let removedByTeacher = false;
+let penaltyUntil = 0;
 let gripMode = 'portrait';
 let fireSide = 'right';
 
@@ -148,7 +149,10 @@ function subscribeGame() {
 
 function subscribeScore() {
   onValue(ref(db, `scores/${room}/${uid}`), snap => {
-    $('scoreLabel').textContent = Number(snap.val()?.score || 0);
+    const data=snap.val() || {};
+    $('scoreLabel').textContent = Number(data.score || 0);
+    penaltyUntil = Number(data.lockedUntil || 0);
+    updateControllerState();
   });
 }
 
@@ -162,22 +166,30 @@ function updateControllerState() {
   $('timeLabel').textContent = Math.ceil(remaining / 1000);
   const running = gameState.status === 'running' && remaining > 0;
   const canPlay = running && isActivePlayer;
-  $('fireBtn').disabled = !canPlay || Date.now() - lastFireLocal < 1000;
+  const now=Date.now();
+  const penaltyRemaining=Math.max(0, penaltyUntil-now);
+  $('fireBtn').disabled = !canPlay || now - lastFireLocal < 1000 || penaltyRemaining > 0;
   if (running && !isActivePlayer) {
     $('gameMessage').className='notice info';
     $('gameMessage').textContent='本局待命中：等待老師勾選你參加。這一局不會顯示你的準星，也不會計分。';
+  } else if (penaltyRemaining > 0) {
+    $('gameMessage').className='notice error';
+    $('gameMessage').textContent=`誤射無理數，光線槍鎖定中：${(penaltyRemaining/1000).toFixed(1)} 秒。`;
   } else if (running) {
     $('gameMessage').className='notice ok';
-    $('gameMessage').textContent='本局已上場：瞄準大螢幕上的有理數，按 FIRE！';
+    $('gameMessage').textContent=gameState.mode === 'coop'
+      ? '合作模式：一起清除有理數，找出「過」「關」！'
+      : '本局已上場：瞄準大螢幕上的有理數，按 FIRE！';
   } else if (gameState.status === 'paused') {
     $('gameMessage').className='notice info'; $('gameMessage').textContent='遊戲暫停。';
   } else if (gameState.status === 'finished') {
-    $('gameMessage').className='notice warn'; $('gameMessage').textContent='時間到！請看大螢幕排行榜。';
+    $('gameMessage').className=gameState.mode === 'coop' && gameState.coopSuccess ? 'notice ok' : 'notice warn';
+    $('gameMessage').textContent=gameState.mode === 'coop' && gameState.coopSuccess ? '合作成功！請看前方大螢幕。' : '時間到！請看大螢幕排行榜。';
   } else {
     $('gameMessage').className='notice info'; $('gameMessage').textContent='等待老師開始遊戲。';
   }
   const cooldown = Math.max(0, 1000 - (Date.now() - lastFireLocal));
-  $('cooldownLabel').textContent = !running ? '等待遊戲' : !isActivePlayer ? '本局待命' : cooldown > 0 ? `${(cooldown/1000).toFixed(1)} 秒` : '可以射擊';
+  $('cooldownLabel').textContent = !running ? '等待遊戲' : !isActivePlayer ? '本局待命' : penaltyRemaining > 0 ? `鎖定 ${(penaltyRemaining/1000).toFixed(1)} 秒` : cooldown > 0 ? `${(cooldown/1000).toFixed(1)} 秒` : '可以射擊';
 }
 
 function bindController() {
@@ -257,6 +269,7 @@ function scheduleAimWrite(force=false) {
 async function fire() {
   const now=Date.now();
   if (gameState.status !== 'running' || !isActivePlayer) return;
+  if (now < penaltyUntil) return;
   if (now-lastFireLocal < 1000) return;
   lastFireLocal=now;
   seq += 1;
