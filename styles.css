@@ -720,7 +720,7 @@ footer { color:var(--muted); font-size:.9rem; padding:8px 0 30px; }
 }
 .coop-table {
   position:absolute;
-  left:3%; right:14%; top:3.5%; bottom:3.5%;
+  left:11.3%; right:22.3%; top:12.8%; bottom:12.8%;
   border:3px solid rgba(91,112,136,.78);
   border-radius:22px;
   background:linear-gradient(145deg, rgba(255,255,255,.40), rgba(222,232,243,.30));
@@ -880,3 +880,8 @@ footer { color:var(--muted); font-size:.9rem; padding:8px 0 30px; }
 .coop-number-card .math-radical { display:inline-flex; align-items:flex-start; white-space:nowrap; vertical-align:middle; }
 .coop-number-card .root-symbol { display:inline-block; font-size:1.08em; line-height:1.04; margin-right:-.08em; }
 .coop-number-card .radicand { display:inline-block; border-top:2px solid currentColor; padding:.03em .08em 0 .10em; line-height:1.02; }
+
+
+/* ===== v2.10 合作模式桌面、開局張數與結算 ===== */
+.coop-only.host-setting select { min-width:88px; }
+.game-stage.coop-mode .coop-table { transition:inset .2s ease; }

@@ -17,7 +17,10 @@ const DEFAULT_RATIONAL_COUNT = 8;
 const DEFAULT_IRRATIONAL_COUNT = 8;
 const HIT_RADIUS_PX = 58;
 const COOP_DURATIONS = [180,210,240,270,300,330,360];
-const COOP_TABLE = { left:0.03, right:0.86, top:0.035, bottom:0.965 };
+const COOP_INITIAL_IRRATIONAL_OPTIONS = [30,35,40,45,50];
+const COOP_INITIAL_RATIONAL_OPTIONS = [60,65,70,75,80,85,90,95,100];
+// v2.10: cooperative tabletop is 80% of the former width/height, centered in the same area.
+const COOP_TABLE = { left:0.113, right:0.777, top:0.128, bottom:0.872 };
 const COOP_CARD_HALF_W = 0.043;
 const COOP_CARD_HALF_H = 0.052;
 
@@ -30,6 +33,9 @@ let gameMode = 'single';
 let lastSingleDuration = 60;
 let lastCoopDuration = 240;
 let soundEnabled = true;
+let coopInitialIrrationalCount = 30;
+let coopInitialRationalCount = 60;
+let coopFinalizedRoundId = null;
 
 function mathItem(key, html = null) {
   return { key, label: key, html: html ?? safeText(key) };
@@ -339,7 +345,7 @@ function initGameSettings() {
   $('soundToggle').checked = true;
   soundEnabled = true;
   applySelectedSettings();
-  ['gameDurationSelect','targetLifetimeSelect','rationalCountSelect','irrationalCountSelect']
+  ['gameDurationSelect','targetLifetimeSelect','rationalCountSelect','irrationalCountSelect','coopInitialIrrationalSelect','coopInitialRationalSelect']
     .forEach(id => $(id).addEventListener('change', applySelectedSettings));
   $('themeSelect').addEventListener('change', () => {
     visualTheme = $('themeSelect').value === 'tech' ? 'tech' : 'classic';
@@ -358,6 +364,8 @@ function applySelectedSettings() {
   const life = Number($('targetLifetimeSelect').value);
   const rCount = Number($('rationalCountSelect').value);
   const iCount = Number($('irrationalCountSelect').value);
+  const coopInitialIrr = Number($('coopInitialIrrationalSelect').value);
+  const coopInitialRat = Number($('coopInitialRationalSelect').value);
   const allowed = gameMode === 'coop' ? COOP_DURATIONS : [60,90,120,150];
   if (allowed.includes(sec)) {
     gameDurationSeconds = sec;
@@ -366,13 +374,15 @@ function applySelectedSettings() {
   if (Number.isFinite(life) && life >= 1 && life <= 15) targetLifetimeMs = life * 1000;
   if (Number.isInteger(rCount) && rCount >= 3 && rCount <= 10) rationalTargetCount = rCount;
   if (Number.isInteger(iCount) && iCount >= 3 && iCount <= 10) irrationalTargetCount = iCount;
+  if (COOP_INITIAL_IRRATIONAL_OPTIONS.includes(coopInitialIrr)) coopInitialIrrationalCount = coopInitialIrr;
+  if (COOP_INITIAL_RATIONAL_OPTIONS.includes(coopInitialRat)) coopInitialRationalCount = coopInitialRat;
   if (round.status === 'waiting' || round.status === 'finished') {
     round.remainingMs = gameDurationSeconds * 1000;
     $('timer').textContent = String(gameDurationSeconds);
   }
   $('startBtn').textContent = gameMode === 'coop' ? `開始合作 ${gameDurationSeconds} 秒` : `開始 ${gameDurationSeconds} 秒`;
   $('gameRuleSummary').textContent = gameMode === 'coop'
-    ? `團隊合作｜${gameDurationSeconds} 秒｜每 15 秒追加卡片｜每 5 次正確命中獲得炸彈`
+    ? `團隊合作｜${gameDurationSeconds} 秒｜開局 ${coopInitialIrrationalCount} 無理 + ${coopInitialRationalCount} 有理｜每 15 秒追加 1 無理 + 4 有理｜每 5 次正確命中獲得炸彈`
     : `停留 ${Math.round(targetLifetimeMs/1000)} 秒｜有理數 ${rationalTargetCount} 個｜無理數 ${irrationalTargetCount} 個｜${gameDurationSeconds} 秒挑戰`;
 }
 
@@ -565,6 +575,14 @@ function subscribeGameState() {
       irrationalTargetCount = state.irrationalTargetCount;
       $('irrationalCountSelect').value = String(irrationalTargetCount);
     }
+    if (COOP_INITIAL_IRRATIONAL_OPTIONS.includes(Number(state.coopInitialIrrationalCount))) {
+      coopInitialIrrationalCount = Number(state.coopInitialIrrationalCount);
+      $('coopInitialIrrationalSelect').value = String(coopInitialIrrationalCount);
+    }
+    if (COOP_INITIAL_RATIONAL_OPTIONS.includes(Number(state.coopInitialRationalCount))) {
+      coopInitialRationalCount = Number(state.coopInitialRationalCount);
+      $('coopInitialRationalSelect').value = String(coopInitialRationalCount);
+    }
     if (state.visualTheme === 'tech' || state.visualTheme === 'classic') {
       visualTheme = state.visualTheme;
       $('themeSelect').value = visualTheme;
@@ -592,6 +610,7 @@ async function startRound(resetScores) {
   hitTargetsByPlayer = new Map();
   shotSeqSeen = new Map();
   coopPenaltyUntil = new Map();
+  coopFinalizedRoundId = null;
   soundEnabled = $('soundToggle').checked;
   if (gameMode === 'coop' && soundEnabled) ensureAudio();
 
@@ -653,11 +672,17 @@ async function stopRound() {
   stopEngine(false);
   clearTargets();
   clearEffects();
+  let coopAward = null;
+  if (gameMode === 'coop') coopAward = await distributeCoopFinalScores({ success:false, remainingSec:0 });
   await writeGameState();
-  $('roundMessage').textContent = '本局已由老師停止；分數已保留。';
+  $('roundMessage').textContent = gameMode === 'coop'
+    ? `本局已由老師停止。團隊分數 ${coopTeamScore}，${coopAward?.teamSize || 0} 位隊員每人獲得 ${coopAward?.teamShare || 0} 分。`
+    : '本局已由老師停止；分數已保留。';
   $('startOverlay').classList.remove('hidden');
   $('startOverlay').querySelector('strong').textContent = '本局已停止';
-  $('startOverlay').querySelector('span').textContent = '可調整參賽學生或設定後，再開始下一局。';
+  $('startOverlay').querySelector('span').textContent = gameMode === 'coop'
+    ? `團隊分數已均分：每位隊員 ${coopAward?.teamShare || 0} 分。`
+    : '可調整參賽學生或設定後，再開始下一局。';
   updateControlState();
 }
 
@@ -673,12 +698,14 @@ async function finishRound() {
   round.remainingMs = 0;
   stopEngine(false);
   clearTargets();
+  let coopAward = null;
+  if (gameMode === 'coop') coopAward = await distributeCoopFinalScores({ success:false, remainingSec:0 });
   await writeGameState();
   if (gameMode === 'coop') {
-    $('roundMessage').textContent = `${gameDurationSeconds} 秒結束，團隊尚未完整找出「過」「關」。`;
+    $('roundMessage').textContent = `${gameDurationSeconds} 秒結束。團隊分數 ${coopTeamScore}，${coopAward?.teamSize || 0} 位隊員每人獲得 ${coopAward?.teamShare || 0} 分。`;
     $('startOverlay').classList.remove('hidden');
     $('startOverlay').querySelector('strong').textContent = '時間到！';
-    $('startOverlay').querySelector('span').textContent = `團隊分數 ${coopTeamScore}；可重新開始再挑戰。`;
+    $('startOverlay').querySelector('span').textContent = `未過關仍會均分團隊分數：每位隊員 ${coopAward?.teamShare || 0} 分。`;
   } else {
     $('roundMessage').textContent = `${gameDurationSeconds} 秒結束！排行榜已保留。`;
     $('startOverlay').classList.remove('hidden');
@@ -704,6 +731,8 @@ async function writeGameState() {
     soundEnabled,
     teamScore: gameMode === 'coop' ? coopTeamScore : null,
     coopSuccess: gameMode === 'coop' ? coopSuccess : null,
+    coopInitialIrrationalCount: gameMode === 'coop' ? coopInitialIrrationalCount : null,
+    coopInitialRationalCount: gameMode === 'coop' ? coopInitialRationalCount : null,
     controllerUid: hostUid,
     updatedAt: Date.now()
   });
@@ -807,6 +836,27 @@ function randomCoopPosition() {
   };
 }
 
+function buildCoopOpeningKinds(irrationalCount, rationalCount) {
+  const kinds=[];
+  let usedI=0, usedR=0;
+  // Evenly interleave the two kinds. With the default 30/60 this is exactly I,R,R repeated.
+  while (usedI < irrationalCount || usedR < rationalCount) {
+    if (usedI < irrationalCount) {
+      kinds.push('irrational');
+      usedI += 1;
+    }
+    const targetR = irrationalCount > 0
+      ? Math.min(rationalCount, Math.round(usedI * rationalCount / irrationalCount))
+      : rationalCount;
+    while (usedR < targetR) {
+      kinds.push('rational');
+      usedR += 1;
+    }
+  }
+  while (usedR < rationalCount) { kinds.push('rational'); usedR += 1; }
+  return kinds;
+}
+
 function setupCoopBoard() {
   clearCoopBoard();
   coopTeamScore = 0;
@@ -830,14 +880,14 @@ function setupCoopBoard() {
   const frag = document.createDocumentFragment();
   for (const passCard of coopPassCards) frag.appendChild(createPassCardElement(passCard));
 
-  // 開場固定 30 張無理數 + 60 張有理數，順序為「無理、有理、有理」重複 30 次。
-  for (let i=0;i<90;i++) {
-    const kind = i % 3 === 0 ? 'irrational' : 'rational';
+  // 開場張數由老師選擇；兩類卡片會盡量平均交錯疊放。
+  const openingKinds = buildCoopOpeningKinds(coopInitialIrrationalCount, coopInitialRationalCount);
+  openingKinds.forEach((kind, i) => {
     const forced = i === 0 ? first : i === 1 ? second : null;
     const card = createCoopNumberCard(kind, forced);
     coopCards.set(card.id, card);
     frag.appendChild(createCoopCardElement(card));
-  }
+  });
   layer.appendChild(frag);
   $('coopBoardLayer').classList.remove('hidden');
   $('coopBoardLayer').setAttribute('aria-hidden','false');
@@ -885,11 +935,11 @@ function addCoopCard(kind) {
 }
 
 function addCoopWave() {
-  const irrationalCount=randInt(1,2);
-  const rationalCount=randInt(3,4);
+  const irrationalCount=1;
+  const rationalCount=4;
   for (let i=0;i<irrationalCount;i++) addCoopCard('irrational');
   for (let i=0;i<rationalCount;i++) addCoopCard('rational');
-  showCoopNotice(`追加 ${irrationalCount} 張無理數 + ${rationalCount} 張有理數`);
+  showCoopNotice('追加 1 張無理數 + 4 張有理數');
 }
 
 function renderCoopBomb() {
@@ -1030,6 +1080,30 @@ function isPassCardClear(passCard) {
   return true;
 }
 
+async function distributeCoopFinalScores({ success=false, remainingSec=0 }={}) {
+  const uids=coopActiveUids();
+  const teamSize=uids.length;
+  const teamShare=teamSize ? Math.ceil(coopTeamScore / teamSize) : 0;
+  const timeShare=success && teamSize ? Math.ceil(Math.max(0, remainingSec) / teamSize) : 0;
+  const totalShare=teamShare + timeShare;
+  if (!teamSize) return { teamSize, teamShare, timeShare, totalShare };
+  if (coopFinalizedRoundId === round.roundId) return { teamSize, teamShare, timeShare, totalShare };
+
+  const writes={};
+  const now=Date.now();
+  for (const uid of uids) {
+    const p=players[uid];
+    const old=scores[uid] || {seat:Number(p?.seat||0),score:0,hits:0,misses:0};
+    const next={...old,score:totalShare,lockedUntil:0,updatedAt:now};
+    writes[`scores/${roomCode}/${uid}`]=next;
+    scores[uid]=next;
+  }
+  await update(ref(db),writes);
+  coopFinalizedRoundId = round.roundId;
+  renderPlayerRoster();
+  return { teamSize, teamShare, timeShare, totalShare };
+}
+
 async function checkCoopSuccess() {
   if (coopSuccess || gameMode!=='coop' || round.status!=='running') return;
   if (!coopPassCards.length || !coopPassCards.every(isPassCardClear)) return;
@@ -1037,24 +1111,16 @@ async function checkCoopSuccess() {
   round.remainingMs=Math.max(0,round.endsAt-Date.now());
   round.status='finished';
   stopEngine(false);
-  const uids=coopActiveUids();
   const remainingSec=Math.ceil(round.remainingMs/1000);
-  const bonus=uids.length?Math.ceil(remainingSec/uids.length):0;
-  const writes={};
-  for (const uid of uids) {
-    const p=players[uid];
-    const old=scores[uid]||{seat:Number(p?.seat||0),score:0,hits:0,misses:0};
-    writes[`scores/${roomCode}/${uid}`]={...old,score:Number(old.score||0)+bonus,lockedUntil:0,updatedAt:Date.now()};
-  }
-  if (Object.keys(writes).length) await update(ref(db),writes);
+  const award=await distributeCoopFinalScores({ success:true, remainingSec });
   await writeGameState();
   const stamp=$('coopSuccessStamp');
   stamp.classList.remove('hidden','stamp-animate');
   void stamp.offsetWidth;
   stamp.classList.add('stamp-animate');
-  $('roundMessage').textContent=`成功！剩餘 ${remainingSec} 秒，${uids.length} 位隊員每人獲得 ${bonus} 分。`;
+  $('roundMessage').textContent=`成功！團隊分數 ${coopTeamScore} → 每人 ${award.teamShare} 分；剩餘 ${remainingSec} 秒 → 每人 ${award.timeShare} 分；每位隊員共 ${award.totalShare} 分。`;
   $('startOverlay').classList.add('hidden');
-  showCoopNotice(`過關！每位隊員 +${bonus} 分`);
+  showCoopNotice(`過關！每位隊員共 +${award.totalShare} 分`);
   playSuccessSound();
   updateControlState();
 }
@@ -1362,6 +1428,8 @@ function updateControlState() {
   $('coopModeBtn').disabled = inRound;
   $('gameDurationSelect').disabled = inRound;
   $('soundToggle').disabled = inRound;
+  $('coopInitialIrrationalSelect').disabled = inRound;
+  $('coopInitialRationalSelect').disabled = inRound;
   ['targetLifetimeSelect','rationalCountSelect','irrationalCountSelect']
     .forEach(id => $(id).disabled = inRound || gameMode === 'coop');
   $('gameStatusBadge').className = `badge ${running ? 'active' : paused ? 'scheduled' : 'closed'}`;
