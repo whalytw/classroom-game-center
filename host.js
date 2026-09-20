@@ -23,22 +23,46 @@ let rationalTargetCount = DEFAULT_RATIONAL_COUNT;
 let irrationalTargetCount = DEFAULT_IRRATIONAL_COUNT;
 let visualTheme = 'classic';
 
+function mathItem(key, html = null) {
+  return { key, label: key, html: html ?? safeText(key) };
+}
+
+function fractionHtml(numerator, denominator) {
+  return `<span class="math-frac"><span class="math-num">${numerator}</span><span class="math-den">${denominator}</span></span>`;
+}
+
+function radicalHtml(radicand) {
+  return `<span class="math-radical"><span class="root-symbol">√</span><span class="radicand">${radicand}</span></span>`;
+}
+
+function repeatingHtml(integerPart, repetend) {
+  return `${integerPart}.<span class="repetend">${repetend}</span>`;
+}
+
 function buildRationalPool() {
   const out = [];
   const seen = new Set();
-  const add = value => {
-    if (!seen.has(value)) { seen.add(value); out.push(value); }
+  const add = (key, html = null) => {
+    if (!seen.has(key)) { seen.add(key); out.push(mathItem(key, html)); }
   };
-  // 固定 200 個有理數題目；完全平方根最大限制為 √1024 = √(32²)。
-  for (let n = -20; n <= 19; n++) add(String(n).replace('-', '−'));           // 40
-  for (let n = 20; n <= 69; n++) add(`${n}.25`);                              // +50 = 90
-  for (let n = 2; n <= 41; n++) add(`1/${n}`);                                // +40 = 130
-  for (let n = 2; n <= 32; n++) add(`√${n * n}`);                             // +31 = 161，最大 √1024
-  for (let n = 1; n <= 20; n++) add(`−${n}/${n + 1}`);                        // +20 = 181
-  for (let n = 1; n <= 19; n++) {                                             // +19 = 200
+  // 固定 200 個有理數；完全平方根最大 √1024 = √(32²)。
+  for (let n = -20; n <= 19; n++) {
+    const label = String(n).replace('-', '−');
+    add(label);
+  }                                                                            // 40
+  for (let n = 20; n <= 69; n++) add(`${n}.25`);                               // +50 = 90
+  for (let n = 2; n <= 41; n++) add(`1/${n}`, fractionHtml('1', String(n)));    // +40 = 130
+  for (let n = 2; n <= 32; n++) {
+    const square = n * n;
+    add(`√${square}`, radicalHtml(String(square)));
+  }                                                                            // +31 = 161
+  for (let n = 1; n <= 20; n++) {
+    add(`−${n}/${n + 1}`, `−${fractionHtml(String(n), String(n + 1))}`);
+  }                                                                            // +20 = 181
+  for (let n = 1; n <= 19; n++) {
     const pair = String(n).padStart(2, '0');
-    add(`2.${pair}${pair}${pair}…`);
-  }
+    add(`2.${pair}${pair}${pair}…`, repeatingHtml('2', pair));
+  }                                                                            // +19 = 200
   return out.slice(0, 200);
 }
 
@@ -48,11 +72,26 @@ function buildIrrationalPool() {
   for (let n = 2; nonSquares.length < 160; n++) {
     if (!Number.isInteger(Math.sqrt(n))) nonSquares.push(n);
   }
-  for (let i = 0; i < 100; i++) out.push(`√${nonSquares[i]}`);
-  for (let i = 100; i < 140; i++) out.push(`${i - 99}+√${nonSquares[i]}`);
-  for (let k = 1; k <= 20; k++) out.push(k === 1 ? 'π+1' : `π+${k}`);
-  for (let k = 1; k <= 20; k++) out.push(k === 1 ? 'e+1' : `e+${k}`);
-  for (let i = 140; i < 160; i++) out.push(`√${nonSquares[i]}/2`);
+  for (let i = 0; i < 100; i++) {
+    const n = nonSquares[i];
+    out.push(mathItem(`√${n}`, radicalHtml(String(n))));
+  }
+  for (let i = 100; i < 140; i++) {
+    const k = i - 99;
+    const n = nonSquares[i];
+    out.push(mathItem(`${k}+√${n}`, `${k}+${radicalHtml(String(n))}`));
+  }
+  // 高一尚未學自然底數 e，因此只使用 π、根式等無理數形式。
+  for (let k = 1; k <= 20; k++) {
+    out.push(mathItem(k === 1 ? 'π+1' : `π+${k}`, k === 1 ? 'π+1' : `π+${k}`));
+  }
+  for (let k = 1; k <= 20; k++) {
+    out.push(mathItem(k === 1 ? 'π' : `${k}π`, k === 1 ? 'π' : `${k}π`));
+  }
+  for (let i = 140; i < 160; i++) {
+    const n = nonSquares[i];
+    out.push(mathItem(`√${n}/2`, fractionHtml(radicalHtml(String(n)), '2')));
+  }
   return out.slice(0, 200);
 }
 
@@ -69,6 +108,9 @@ let activePlayers = {};
 let scores = {};
 let aims = {};
 let targets = new Map();
+let rosterViewMode = 'normal';
+let groupSize = 4;
+let randomizedGroupOrder = null;
 let round = {
   status: 'waiting', roundId: null, startedAt: 0, endsAt: 0, remainingMs: DEFAULT_GAME_SECONDS * 1000
 };
@@ -79,7 +121,7 @@ let hitTargetsByPlayer = new Map();
 
 function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-function safeText(s) { return String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+function safeText(s) { return String(s ?? '').replace(/[&<>\'\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
 function setFatal(type, text) { $('fatalNotice').className = `notice ${type} host-connection-notice`; $('fatalNotice').textContent = text; }
 function activeHostPath() { return `roomHosts/${roomCode}/${hostUid}`; }
 function isPlayerActive(uid) { return activePlayers[uid] === true; }
@@ -98,11 +140,11 @@ function drawLabel(kind) {
   const pool = kind === 'rational' ? rationalPool : irrationalPool;
   let bag = kind === 'rational' ? rationalBag : irrationalBag;
   if (!bag.length) bag = shuffle(pool);
-  const activeLabels = new Set(Array.from(targets.values()).map(t => t.label));
+  const activeKeys = new Set(Array.from(targets.values()).map(t => t.key));
   let chosen = null;
   for (let i = 0; i < pool.length; i++) {
     const candidate = bag.shift();
-    if (!activeLabels.has(candidate)) { chosen = candidate; break; }
+    if (!activeKeys.has(candidate.key)) { chosen = candidate; break; }
     bag.push(candidate);
   }
   if (!chosen) chosen = pool[randInt(0, pool.length - 1)];
@@ -241,6 +283,19 @@ function bindControls() {
   });
   $('fsStopBtn').addEventListener('click', stopRound);
   $('crosshairToggle').addEventListener('change', renderCrosshairs);
+  $('rosterNormalTab').addEventListener('click', () => setRosterViewMode('normal'));
+  $('rosterGroupTab').addEventListener('click', () => setRosterViewMode('group'));
+  $('groupSizeSelect').addEventListener('change', () => {
+    groupSize = Math.max(2, Math.min(12, Number($('groupSizeSelect').value) || 4));
+    renderPlayerRoster();
+  });
+  $('randomGroupBtn').addEventListener('click', () => {
+    randomizedGroupOrder = shuffle(Object.keys(players));
+    setRosterViewMode('group');
+    const old = $('randomGroupBtn').textContent;
+    $('randomGroupBtn').textContent = '已重新分組';
+    setTimeout(() => $('randomGroupBtn').textContent = old, 1000);
+  });
   $('selectAllBtn').addEventListener('click', () => setAllPlayersActive(true));
   $('selectNoneBtn').addEventListener('click', () => setAllPlayersActive(false));
   $('resetAllScoresBtn').addEventListener('click', () => {
@@ -523,9 +578,12 @@ function findSpawnPosition() {
 function spawnTarget(kind) {
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
   const { x, y } = findSpawnPosition();
-  const label = drawLabel(kind);
+  const item = drawLabel(kind);
   const now = Date.now();
-  const target = { id, kind, label, x, y, spawnedAt: now, expiresAt: now + targetLifetimeMs };
+  const target = {
+    id, kind, key: item.key, label: item.label, html: item.html,
+    x, y, spawnedAt: now, expiresAt: now + targetLifetimeMs
+  };
   targets.set(id, target);
 
   const el = document.createElement('div');
@@ -533,7 +591,8 @@ function spawnTarget(kind) {
   el.dataset.targetId = id;
   el.style.left = `${x * 100}%`;
   el.style.top = `${y * 100}%`;
-  el.textContent = label;
+  el.innerHTML = item.html;
+  el.setAttribute('aria-label', item.label);
   $('targetsLayer').appendChild(el);
 }
 
@@ -647,6 +706,52 @@ async function setAllPlayersActive(active) {
   await update(ref(db, `activePlayers/${roomCode}`), writes);
 }
 
+function setRosterViewMode(mode) {
+  rosterViewMode = mode === 'group' ? 'group' : 'normal';
+  $('rosterNormalTab').classList.toggle('active', rosterViewMode === 'normal');
+  $('rosterGroupTab').classList.toggle('active', rosterViewMode === 'group');
+  $('rosterNormalTab').setAttribute('aria-selected', String(rosterViewMode === 'normal'));
+  $('rosterGroupTab').setAttribute('aria-selected', String(rosterViewMode === 'group'));
+  $('groupControls').classList.toggle('hidden', rosterViewMode !== 'group');
+  renderPlayerRoster();
+}
+
+function createPlayerRosterRow(uid, p) {
+  const row = document.createElement('div');
+  row.className = `player-roster-row ${isPlayerActive(uid) ? 'active' : ''}`;
+  row.innerHTML = `
+    <label class="player-check"><input type="checkbox" ${isPlayerActive(uid) ? 'checked' : ''}><span>${safeText(p.seat)}號</span></label>
+    <strong>${Number(scores[uid]?.score || 0)}</strong>
+    <button class="btn ghost tiny-btn reset-one">歸零</button>
+    <button class="btn danger tiny-btn release-seat">釋放座號</button>`;
+  row.querySelector('input').addEventListener('change', e => setPlayerActive(uid, e.target.checked));
+  row.querySelector('.reset-one').addEventListener('click', () => resetPlayerScore(uid));
+  row.querySelector('.release-seat').addEventListener('click', () => releasePlayerSeat(uid));
+  return row;
+}
+
+function groupedPlayerEntries() {
+  const byUid = new Map(Object.entries(players));
+  const allUidsSorted = [...byUid.keys()].sort((a,b) => Number(byUid.get(a)?.seat) - Number(byUid.get(b)?.seat));
+  let order = allUidsSorted;
+  if (Array.isArray(randomizedGroupOrder) && randomizedGroupOrder.length) {
+    const current = new Set(allUidsSorted);
+    const kept = randomizedGroupOrder.filter(uid => current.has(uid));
+    const keptSet = new Set(kept);
+    const added = allUidsSorted.filter(uid => !keptSet.has(uid));
+    order = [...kept, ...added];
+  }
+  const groups = [];
+  for (let i = 0; i < order.length; i += groupSize) {
+    const group = order.slice(i, i + groupSize)
+      .map(uid => [uid, byUid.get(uid)])
+      .filter(([,p]) => p)
+      .sort((a,b) => Number(a[1].seat) - Number(b[1].seat));
+    if (group.length) groups.push(group);
+  }
+  return groups;
+}
+
 function renderPlayerRoster() {
   const roster = $('playerRoster');
   const arr = Object.entries(players).sort((a,b) => Number(a[1].seat) - Number(b[1].seat));
@@ -655,19 +760,24 @@ function renderPlayerRoster() {
     return;
   }
   roster.replaceChildren();
-  for (const [uid, p] of arr) {
-    const row = document.createElement('div');
-    row.className = `player-roster-row ${isPlayerActive(uid) ? 'active' : ''}`;
-    row.innerHTML = `
-      <label class="player-check"><input type="checkbox" ${isPlayerActive(uid) ? 'checked' : ''}><span>${safeText(p.seat)}號</span></label>
-      <strong>${Number(scores[uid]?.score || 0)}</strong>
-      <button class="btn ghost tiny-btn reset-one">歸零</button>
-      <button class="btn danger tiny-btn release-seat">釋放座號</button>`;
-    row.querySelector('input').addEventListener('change', e => setPlayerActive(uid, e.target.checked));
-    row.querySelector('.reset-one').addEventListener('click', () => resetPlayerScore(uid));
-    row.querySelector('.release-seat').addEventListener('click', () => releasePlayerSeat(uid));
-    roster.appendChild(row);
+  if (rosterViewMode === 'normal') {
+    for (const [uid,p] of arr) roster.appendChild(createPlayerRosterRow(uid,p));
+    return;
   }
+  const groups = groupedPlayerEntries();
+  groups.forEach((group, index) => {
+    const block = document.createElement('section');
+    block.className = 'player-group-block';
+    const head = document.createElement('div');
+    head.className = 'player-group-head';
+    head.innerHTML = `<strong>第 ${index + 1} 組</strong><span>${group.length} 人</span>`;
+    block.appendChild(head);
+    const rows = document.createElement('div');
+    rows.className = 'player-group-rows';
+    for (const [uid,p] of group) rows.appendChild(createPlayerRosterRow(uid,p));
+    block.appendChild(rows);
+    roster.appendChild(block);
+  });
 }
 
 function renderLeaderboard() {

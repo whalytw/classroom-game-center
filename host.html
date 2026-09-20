@@ -103,6 +103,28 @@
             <h2>學生名單</h2>
             <span id="joinedCount" class="muted">0 人</span>
           </div>
+          <div class="roster-view-tabs" role="tablist" aria-label="學生名單瀏覽方式">
+            <button id="rosterNormalTab" class="roster-tab active" type="button" role="tab" aria-selected="true">一般排序</button>
+            <button id="rosterGroupTab" class="roster-tab" type="button" role="tab" aria-selected="false">分組瀏覽</button>
+          </div>
+          <div id="groupControls" class="group-controls hidden">
+            <label>每組
+              <select id="groupSizeSelect" aria-label="每組人數">
+                <option value="2">2 人</option>
+                <option value="3">3 人</option>
+                <option value="4" selected>4 人</option>
+                <option value="5">5 人</option>
+                <option value="6">6 人</option>
+                <option value="7">7 人</option>
+                <option value="8">8 人</option>
+                <option value="9">9 人</option>
+                <option value="10">10 人</option>
+                <option value="11">11 人</option>
+                <option value="12">12 人</option>
+              </select>
+            </label>
+            <button id="randomGroupBtn" class="btn ghost tiny-btn" type="button">亂數分組</button>
+          </div>
           <div class="player-control-toolbar">
             <span id="activeCount" class="muted">本局 0 人</span>
             <div class="player-control-actions">
