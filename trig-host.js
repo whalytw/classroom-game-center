@@ -4,6 +4,7 @@ import {
   getDatabase, ref, get, set, update, onValue, onChildAdded, onChildChanged
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
 import { firebaseConfig } from './firebase-config.js';
+import { createFormula, formulaPlainText } from './trig-math.js?v=3.2';
 
 const app = initializeApp(firebaseConfig, 'trig-host-control');
 const auth = getAuth(app);
@@ -16,6 +17,7 @@ const NORMAL_DURATIONS = [90,90,90,90,150,150,150];
 const MIX_DURATION = 150;
 const COUNTDOWN_MS = 3000;
 const STAMP_MS = 1400;
+const RESULT_REVIEW_MS = 5000;
 const NORMAL_SKILLS = [
   ['horizontal-shift','左右平移'],
   ['vertical-shift','上下平移'],
@@ -59,6 +61,10 @@ let audioCtx = null;
 let serverOffset = 0;
 let starting = false;
 let lastCountdownBeat = null;
+let autoNextTimer = null;
+let durationsByMode = {normal:[...NORMAL_DURATIONS],mix:Array(5).fill(MIX_DURATION)};
+let sessionDurations = [...NORMAL_DURATIONS];
+let cueNodes = [];
 const serverNow = () => Date.now() + serverOffset;
 const roundName = n => `第${['零','一','二','三','四','五','六','七'][n] || n}關`;
 function roundUids() { return Object.keys(correctByUid).filter(uid => players[uid] && activePlayers[uid] === true); }
@@ -97,6 +103,7 @@ async function boot() {
     setFatal('ok','教師控制端已連線。學生可掃 QR Code 加入。');
 
     loadLocalSettings();
+    renderDurationSettings();
     bindControls();
     await setupStudentQr();
     subscribePassValidity();
@@ -116,6 +123,8 @@ async function boot() {
 
 function loadLocalSettings() {
   try { visualTheme = localStorage.getItem('trigGraphTheme') === 'tech' ? 'tech' : 'classic'; } catch {}
+  try{const saved=JSON.parse(localStorage.getItem('trigRoundDurations')||'null');if(saved)durationsByMode={normal:normalizeDurations(saved.normal,'normal'),mix:normalizeDurations(saved.mix,'mix')};}catch{}
+  sessionDurations=[...durationsByMode[sessionMode]];
   $('themeSelect').value = visualTheme;
   applyTheme();
 }
@@ -128,7 +137,7 @@ function bindControls() {
     try { localStorage.setItem('trigGraphTheme',visualTheme); } catch {}
     applyTheme();
   });
-  $('soundToggle').addEventListener('change',()=>{soundEnabled=$('soundToggle').checked;if(soundEnabled)ensureAudio();});
+  $('soundToggle').addEventListener('change',()=>{soundEnabled=$('soundToggle').checked;if(soundEnabled)ensureAudio();else stopCue();});
   $('startGameBtn').addEventListener('click',startNewGame);
   $('fsStartBtn').addEventListener('click',startNewGame);
   $('pauseBtn').addEventListener('click',pauseRound);
@@ -136,6 +145,7 @@ function bindControls() {
   $('settleBtn').addEventListener('click',()=>round.status==='settling'?retrySettlement():settleRound(false));
   $('nextRoundBtn').addEventListener('click',startNextRound);
   $('stopGameBtn').addEventListener('click',stopWholeGame);
+  $('fsStopBtn').addEventListener('click',stopWholeGame);
   $('fullscreenBtn').addEventListener('click',toggleFullscreen);
   $('fsPauseResumeBtn').addEventListener('click',()=>round.status==='paused'?resumeRound():pauseRound());
   $('fsSettleBtn').addEventListener('click',()=>round.status==='settling'?retrySettlement():settleRound(false));
@@ -157,6 +167,7 @@ function applyTheme() { $('trigStage').classList.toggle('theme-tech',visualTheme
 function setSessionMode(mode) {
   if (['running','paused'].includes(round.status) || roundNumber>0 && round.status!=='finished') return;
   sessionMode = mode==='mix'?'mix':'normal';
+  sessionDurations=[...durationsByMode[sessionMode]];renderDurationSettings();
   totalRounds = sessionMode==='mix'?5:7;
   $('normalModeBtn').classList.toggle('active',sessionMode==='normal');
   $('mixModeBtn').classList.toggle('active',sessionMode==='mix');
@@ -183,7 +194,29 @@ function roundSkillFor(n) {
   if(sessionMode==='mix') return ['all','平移＋伸縮綜合'];
   return NORMAL_SKILLS[n-1] || NORMAL_SKILLS[NORMAL_SKILLS.length-1];
 }
-function roundDurationFor(n) { return sessionMode==='mix'?MIX_DURATION:(NORMAL_DURATIONS[n-1]||150); }
+function normalizeDurations(values,mode){
+  const defaults=mode==='mix'?Array(5).fill(MIX_DURATION):NORMAL_DURATIONS;
+  return defaults.map((fallback,i)=>{const n=Number(values?.[i]);return Number.isInteger(n)&&n>=60&&n<=300&&n%15===0?n:fallback;});
+}
+function renderDurationSettings(){
+  const inputs=$('durationInputs');inputs.replaceChildren();
+  durationsByMode[sessionMode].forEach((seconds,i)=>{
+    const label=document.createElement('label');label.textContent=`第 ${i+1} 關`;
+    const select=document.createElement('select');select.id=`roundDuration${i+1}`;select.setAttribute('aria-label',`第 ${i+1} 關作答秒數`);
+    for(let n=60;n<=300;n+=15){const option=document.createElement('option');option.value=String(n);option.textContent=`${n} 秒`;select.appendChild(option);}
+    select.value=String(seconds);
+    select.addEventListener('change',()=>{
+      if(starting||roundNumber>0&&round.status!=='finished')return;
+      durationsByMode[sessionMode][i]=Number(select.value);sessionDurations=[...durationsByMode[sessionMode]];
+      try{localStorage.setItem('trigRoundDurations',JSON.stringify(durationsByMode));}catch{}
+    });label.appendChild(select);inputs.appendChild(label);
+  });
+}
+function roundDurationFor(n){return sessionDurations[n-1]||(sessionMode==='mix'?MIX_DURATION:(NORMAL_DURATIONS[n-1]||150));}
+function buildAssignmentOptions(count){
+  const order=shuffle(roundOptions);
+  return Array.from({length:count},(_,i)=>order[i%order.length]);
+}
 
 async function setupStudentQr() {
   let joinToken=pass?.joinToken||null;
@@ -233,6 +266,8 @@ async function restoreExistingSession() {
     const state=stateSnap.val();
     if(!state||state.gameId!=='trig-graph-shooter')return;
     sessionMode=state.sessionMode==='mix'?'mix':'normal';
+    sessionDurations=normalizeDurations(state.roundDurations,sessionMode);
+    durationsByMode[sessionMode]=[...sessionDurations];renderDurationSettings();
     totalRounds=Number(state.totalRounds)||(sessionMode==='mix'?5:7);
     roundNumber=Number(state.roundNumber)||0;
     typeQueue=Array.isArray(state.typeQueue)?state.typeQueue:[];
@@ -243,7 +278,7 @@ async function restoreExistingSession() {
       remainingMs:Number(state.remainingMs||0),functionType:state.functionType||null,skillKey:state.skillKey||null,skillLabel:state.skillLabel||'—',
       durationMs:Number(state.durationMs)||roundDurationFor(roundNumber)*1000, countdownEndsAt:Number(state.countdownEndsAt)||0,
       pauseStartedAt:Number(state.pauseStartedAt)||0, pauseWindows:state.pauseWindows||[],
-      completionEndsAt:Number(state.completionEndsAt)||0, finishAfter:!!state.finishAfter, completionReason:state.completionReason||''
+      completionEndsAt:Number(state.completionEndsAt)||0, finishAfter:!!state.finishAfter, completionReason:state.completionReason||'',nextRoundAt:Number(state.nextRoundAt)||0
     };
     if(round.roundId){
       const privSnap=await get(ref(db,`trigPrivate/${roomCode}`));
@@ -261,6 +296,7 @@ async function restoreExistingSession() {
       if(round.status==='paused')showFieldOverlay('本關暫停','按「繼續」恢復作答。');
     }
     if(round.status==='settling')void settleRound(round.finishAfter,round.completionReason,true);
+    if(round.status==='round-ended'){round.nextRoundAt=round.nextRoundAt||serverNow()+RESULT_REVIEW_MS;startAutoNext();}
     if(['round-ended','finished'].includes(round.status))showFieldOverlay(round.status==='finished'?'遊戲完成！':`${roundName(roundNumber)}結算完成`,'請看右側排行榜。');
   } catch(e) { reportError(e); }
 }
@@ -273,6 +309,7 @@ async function startNewGame() {
   if(!activeCount()){alert('請先在右側學生名單勾選至少 1 位本局參加學生。');return;}
   starting=true;updateUI();
   try{
+    stopAutoNext();sessionDurations=[...durationsByMode[sessionMode]];
     totalRounds=sessionMode==='mix'?5:7;
     typeQueue=buildBalancedTypeQueue(totalRounds,types);
     await resetActiveScores();
@@ -286,9 +323,10 @@ async function startNewGame() {
 async function startNextRound() {
   if(starting||settling||round.status!=='round-ended')return;
   if(roundNumber>=totalRounds)return;
-  if(!activeCount()){alert('請先勾選至少 1 位參賽學生。');return;}
+  stopAutoNext();
+  if(!activeCount()){showFieldOverlay('尚無參賽學生','請先勾選參賽學生，再按「立即下一關」。');return;}
   ensureAudio();starting=true;updateUI();
-  try{await prepareRound();}catch(e){reportError(e);}
+  try{await prepareRound();}catch(e){reportError(e);if(round.status==='round-ended')showFieldOverlay('下一關尚未開始','請確認連線或參賽名單，再按「立即下一關」。');}
   finally{starting=false;updateUI();}
 }
 
@@ -308,11 +346,11 @@ async function prepareRound(){
   round={status:'countdown',roundId:crypto.randomUUID?crypto.randomUUID():`${now}-${Math.random()}`,
     startedAt:0,endsAt:0,remainingMs:durationMs,durationMs,countdownEndsAt:0,
     pauseWindows:[],pauseStartedAt:0,functionType,skillKey,skillLabel};
-  const writes={},assignments={};
+  const writes={},assignments={},assignedOptions=buildAssignmentOptions(uids.length);
   for(const key of ['trigAnswers','trigCandidates','trigResults'])writes[`${key}/${roomCode}`]=null;
   uids.forEach((uid,i)=>{
-    const option=roundOptions[i%6];correctByUid[uid]=option.id;
-    assignments[uid]={roundId:round.roundId,roundNumber,functionType,formulaText:formulaText(option),assignedAt:now};
+    const option=assignedOptions[i];correctByUid[uid]=option.id;
+    assignments[uid]={roundId:round.roundId,roundNumber,functionType,formulaText:formulaText(option),formula:createFormula(option),assignedAt:now};
   });
   writes[`trigAssignments/${roomCode}`]=assignments;
   writes[`trigPrivate/${roomCode}`]={roundId:round.roundId,roundNumber,functionType,skillKey,skillLabel,
@@ -347,7 +385,7 @@ async function beginTimedRound(){
     await writeGameState();
     $('fieldOverlay').className='trig-field-overlay hidden';
     $('roundMessage').textContent=`${roundName(roundNumber)}進行中：${round.skillLabel}。請看手機上的題目。`;
-    if(soundEnabled)tone(1046,.25);
+    playStartSound();
   }catch(e){round.status='countdown';round.countdownEndsAt=serverNow()+COUNTDOWN_MS;reportError(e);}
   finally{starting=false;updateUI();}
 }
@@ -383,13 +421,14 @@ async function resumeRound(){
 async function stopWholeGame(){
   if(starting||settling)return;
   if(!confirm('確定停止整場遊戲？已鎖定的本關答案仍會先結算，之後不再進入下一關。'))return;
+  stopAutoNext();
   if(['countdown','running','paused'].includes(round.status))await settleRound(true,'stopped');
   else await finishWholeGame();
 }
 
 function remainingAtLock(lockedAt){
   const pausedMs=Object.values(round.pauseWindows||{}).reduce((sum,p)=>sum+Math.max(0,Math.min(lockedAt,p.end)-p.start),0);
-  return clamp(Math.ceil(((round.durationMs||roundDurationFor(roundNumber)*1000)-(lockedAt-round.startedAt-pausedMs))/1000),0,roundDurationFor(roundNumber));
+  return clamp(Math.ceil(((round.durationMs||roundDurationFor(roundNumber)*1000)-(lockedAt-round.startedAt-pausedMs))/1000),0,(round.durationMs||roundDurationFor(roundNumber)*1000)/1000);
 }
 async function settleRound(finishAfter=false,reason='manual',restoring=false) {
   if(settling||starting||(!restoring&&!['countdown','running','paused'].includes(round.status)))return;
@@ -421,23 +460,35 @@ async function settleRound(finishAfter=false,reason='manual',restoring=false) {
     await new Promise(resolve=>setTimeout(resolve,Math.max(0,round.completionEndsAt-serverNow())));
     const finalStatus=(finishAfter||roundNumber>=totalRounds)?'finished':'round-ended';
     writes[`trigCandidates/${roomCode}`]=null;
+    round.nextRoundAt=finalStatus==='round-ended'?serverNow()+RESULT_REVIEW_MS:0;
     writes[`gameState/${roomCode}`]=gameStatePayload({status:finalStatus});
     await update(ref(db),writes);round.status=finalStatus;
     showFieldOverlay(finalStatus==='finished'?'遊戲完成！':`${roundName(roundNumber)}結算完成`,
-      `答對 ${correctCount}/${uids.length} 人。${finalStatus==='finished'?'請看右側最終排行榜。':'按「下一關」繼續。'}`);
-    $('roundMessage').textContent=finalStatus==='finished'?'整場遊戲完成。排行榜已依總分排序。':`${roundName(roundNumber)}已結算；可進入第 ${roundNumber+1} 關。`;
-    if(finalStatus==='finished')playFinishSound();
+      `答對 ${correctCount}/${uids.length} 人。${finalStatus==='finished'?'請看右側最終排行榜。':'5 秒後自動進入下一關。'}`);
+    $('roundMessage').textContent=finalStatus==='finished'?'整場遊戲完成。排行榜已依總分排序。':`${roundName(roundNumber)}已結算；5 秒後自動進入第 ${roundNumber+1} 關。`;
+    if(finalStatus==='finished')playFinishSound();else startAutoNext();
   }catch(e){
     reportError(e);showFieldOverlay('結算尚未完成','請確認網路連線，按右側或上方「重試結算」。');
   }finally{settling=false;updateUI();}
 }
+function stopAutoNext(){if(autoNextTimer)clearInterval(autoNextTimer);autoNextTimer=null;}
+function startAutoNext(){
+  stopAutoNext();
+  autoNextTimer=setInterval(()=>{
+    if(round.status!=='round-ended'){stopAutoNext();return;}
+    const seconds=Math.max(0,Math.ceil((round.nextRoundAt-serverNow())/1000));
+    $('overlayText').textContent=`請查看手機答案與分數。${seconds} 秒後自動進入第 ${roundNumber+1} 關。`;
+    $('roundMessage').textContent=`${roundName(roundNumber)}已結算；${seconds} 秒後自動進入下一關。`;
+    if(seconds===0&&!starting&&!settling)void startNextRound();
+  },100);
+}
 async function retrySettlement(){await settleRound(round.finishAfter,round.completionReason,true);}
 async function finishWholeGame(){
-  round.status='finished';stopEngine();try{await writeGameState();}catch(e){reportError(e);}
-  showFieldOverlay('遊戲完成！','請查看右側最終排行榜。');updateUI();
+  stopAutoNext();round.nextRoundAt=0;round.status='finished';stopEngine();try{await writeGameState();}catch(e){reportError(e);}
+  showFieldOverlay('遊戲完成！','請查看右側最終排行榜。');playFinishSound();updateUI();
 }
 function gameStatePayload(extra={}){
-  return {gameId:'trig-graph-shooter',status:round.status,sessionMode,totalRounds,roundNumber,typeQueue,
+  return {gameId:'trig-graph-shooter',status:round.status,sessionMode,totalRounds,roundNumber,typeQueue,roundDurations:sessionDurations,nextRoundAt:round.nextRoundAt||0,
     roundId:round.roundId,startedAt:round.startedAt||null,endsAt:round.endsAt||null,
     remainingMs:Math.max(0,Math.round(round.remainingMs||0)),durationMs:round.durationMs||0,
     countdownEndsAt:round.countdownEndsAt||0,pauseStartedAt:round.pauseStartedAt||0,pauseWindows:round.pauseWindows||[],
@@ -473,6 +524,7 @@ function updateUI(){
   $('settleBtn').disabled=settling||starting||(!inRound&&round.status!=='settling');
   $('settleBtn').textContent=round.status==='settling'&&!settling?'重試結算':'提前結算本關';$('nextRoundBtn').classList.toggle('hidden',round.status!=='round-ended');
   $('stopGameBtn').disabled=busy||roundNumber===0||round.status==='finished';
+  $('fsStopBtn').disabled=$('stopGameBtn').disabled;
   $('startGameBtn').disabled=busy||inRound||round.status==='round-ended';
   $('startGameBtn').textContent=round.status==='finished'?'重新開始整場':roundNumber===0?'開始第 1 關':'重新開始整場';
   $('fsStartBtn').disabled=$('startGameBtn').disabled;
@@ -484,6 +536,7 @@ function updateUI(){
   for(const id of ['selectAllBtn','selectNoneBtn','resetAllScoresBtn'])$(id).disabled=rosterLocked();
   const lockSettings=starting||roundNumber>0&&round.status!=='finished';
   for(const id of ['normalModeBtn','mixModeBtn','sinToggle','cosToggle','tanToggle'])$(id).disabled=lockSettings;
+  $('durationSettings').disabled=lockSettings;
   $('gameStatusBadge').className=`badge ${running?'active':paused?'scheduled':'closed'}`;
   $('gameStatusBadge').textContent=round.status==='countdown'?'倒數中':round.status==='settling'?'結算中':running?'進行中':paused?'暫停':round.status==='round-ended'?'本關結束':round.status==='finished'?'已完成':'等待';
 
@@ -564,17 +617,7 @@ function renderLeaderboard(){
   $('leaderboard').innerHTML=arr.length?arr.map((p,i)=>`<div class="trig-leader-row ${i<3?'top':''}"><span>${i+1}</span><b>${p.seat}號${p.last?` <small class="muted">(+${p.last})</small>`:''}</b><strong>${p.score}</strong></div>`).join(''):'<div class="muted">尚未勾選參賽學生。</div>';
 }
 
-function formulaText(p){
-  const a=p.aLabel==='1'?'':`${p.aLabel} `;
-  let inside='x';
-  const hasShift=Math.abs(p.h)>1e-8;
-  if(hasShift) inside=`(x ${p.h>0?'−':'+'} ${p.hLabel.replace(/^−/,'')})`;
-  if(p.bLabel!=='1') inside=hasShift ? `${p.bLabel}${inside}` : `${p.bLabel}x`;
-  const core=`${a}${p.type} ${inside}`.replace(/\s+/g,' ').trim();
-  if(p.k>0)return `y = ${core} + ${p.k}`;
-  if(p.k<0)return `y = ${core} − ${Math.abs(p.k)}`;
-  return `y = ${core}`;
-}
+function formulaText(p){return formulaPlainText(createFormula(p));}
 
 function generateOptions(type,skillKey,count){
   const out=[];const keys=new Set();let tries=0;
@@ -637,7 +680,21 @@ function piTick(m){
   if(m===0)return'0';const sign=m<0?'−':'';const a=Math.abs(m);if(a===1)return`${sign}π/2`;if(a===2)return`${sign}π`;if(a%2===0)return`${sign}${a/2}π`;return`${sign}${a}π/2`;
 }
 
-async function playFinishSound(){if(!soundEnabled)return;const ctx=ensureAudio();if(!ctx)return;[523,659,784].forEach((f,i)=>setTimeout(()=>tone(f,.18),i*100));}
+function stopCue(){for(const node of cueNodes){try{node.stop();}catch{}}cueNodes=[];}
+function playCue(notes){
+  if(!soundEnabled)return;const ctx=ensureAudio();if(!ctx)return;stopCue();
+  const base=ctx.currentTime;
+  for(const [freq,offset,duration] of notes){
+    const o=ctx.createOscillator(),g=ctx.createGain(),at=base+offset;
+    o.type='triangle';o.frequency.value=freq;
+    g.gain.setValueAtTime(.0001,at);g.gain.linearRampToValueAtTime(.075,at+.015);g.gain.exponentialRampToValueAtTime(.0001,at+duration);
+    o.connect(g).connect(ctx.destination);o.start(at);o.stop(at+duration);
+    cueNodes.push(o);o.onended=()=>{o.disconnect();g.disconnect();cueNodes=cueNodes.filter(n=>n!==o);};
+  }
+}
+// Short rising start cue (0.8 s) and final fanfare (1.7 s); no downloaded audio needed.
+function playStartSound(){playCue([[523,.0,.16],[659,.14,.16],[784,.28,.16],[1047,.42,.38]]);}
+function playFinishSound(){playCue([[523,0,.24],[659,.2,.24],[784,.4,.26],[1047,.66,.3],[784,1,.25],[1047,1.2,.5]]);}
 function ensureAudio(){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;if(!audioCtx)audioCtx=new C();if(audioCtx.state==='suspended')audioCtx.resume();return audioCtx;}catch{return null;}}
 function tone(freq,d=.08){if(!soundEnabled)return;const ctx=ensureAudio();if(!ctx)return;const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=freq;o.type='triangle';g.gain.setValueAtTime(.06,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+d);o.connect(g).connect(ctx.destination);o.start();o.stop(ctx.currentTime+d);}
 

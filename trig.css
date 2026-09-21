@@ -1,4 +1,4 @@
-/* ===== 三角函數圖形射擊 v3.1 ===== */
+/* ===== 三角函數圖形射擊 v3.2 ===== */
 .trig-host-page,
 .trig-join-page { background:#edf3fa; color:#172033; }
 .trig-shell { max-width:1800px; margin:0 auto; padding:10px 14px 18px; }
@@ -158,3 +158,25 @@
   .trig-controller-ready .trig-formula { font-size:1.55rem; margin:4px 0; }
   .trig-controller-ready .controller-core.landscape-layout .aim-pad { height:180px; min-height:180px; }
 }
+
+/* v3.2: 每關秒數設定與課本式函數排版 */
+.trig-duration-settings { margin:0 0 10px; padding:8px 10px; border:1px solid #c8d5e3; border-radius:12px; }
+.trig-duration-settings legend { padding:0 6px; font-size:.82rem; color:#475569; font-weight:700; }
+.trig-duration-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(100px,1fr)); gap:8px; }
+.trig-duration-grid label { margin:0; font-size:.8rem; }
+.trig-duration-grid select { margin-top:4px; min-height:36px; padding:5px 7px; }
+.trig-duration-settings:disabled { opacity:.65; }
+.trig-fs-controls { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.trig-math-equation { display:inline-flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:.13em; max-width:100%; }
+.trig-function-name { font-style:normal; margin-left:.05em; }
+.trig-math-argument { display:inline-flex; align-items:center; gap:.1em; white-space:nowrap; }
+.trig-math-term { display:inline-flex; align-items:center; }
+.trig-math-sign { padding:0 .05em; }
+.trig-math-paren { font-size:1.55em; font-weight:400; line-height:1; }
+.trig-fraction { display:inline-flex; flex-direction:column; align-items:stretch; vertical-align:middle; text-align:center; font-size:.88em; line-height:1.08; margin:.06em .05em; }
+.trig-numerator { display:block; padding:0 .13em .07em; border-bottom:1.6px solid currentColor; }
+.trig-denominator { display:block; padding:.07em .13em 0; }
+.trig-formula { font-size:clamp(1.35rem,5.8vw,2.3rem); line-height:1.4; }
+
+.trig-math-equation { flex-wrap:nowrap; max-width:none; white-space:nowrap; }
+.trig-math-offset { display:inline-flex; align-items:center; white-space:nowrap; }

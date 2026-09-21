@@ -4,6 +4,7 @@ import {
   getDatabase, ref, get, update, set, onValue, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
 import { firebaseConfig } from './firebase-config.js';
+import { formulaHtml, formulaPlainText, validFormula, legacyFormula } from './trig-math.js?v=3.2';
 
 const app=initializeApp(firebaseConfig,'trig-student-controller');
 const auth=getAuth(app);const db=getDatabase(app);const $=id=>document.getElementById(id);
@@ -20,6 +21,7 @@ let currentAssignment=null,currentCandidate=null,answerLocked=false,dismissedCan
 let currentTotalScore=0,resultAnimation=null,audioCtx=null;
 let currentAnswer=null,pendingResult=null,confirmingRoundId=null,assignmentError='',gameError='',submissionError='';
 let serverOffset=0;
+let renderedFormulaKey='';
 const serverNow=()=>Date.now()+serverOffset;
 const roundName=n=>`第${['零','一','二','三','四','五','六','七'][n]||n}關`;
 
@@ -57,6 +59,7 @@ function subscribeGame(){
     gameState=next;gameError='';submissionError='';
     if(changedRound){
       confirmingRoundId=null;dismissedCandidateKey='';
+      if(resultAnimation){clearInterval(resultAnimation);resultAnimation=null;}
       if(currentCandidate?.roundId!==next.roundId)currentCandidate=null;
       $('confirmOverlay').classList.add('hidden');$('resultOverlay').classList.add('hidden');
     }
@@ -85,14 +88,32 @@ function renderAssignment(){
   $('questionCard').classList.remove('hidden');
   if(ready){
     $('questionType').textContent=`第 ${currentAssignment.roundNumber} 關｜${String(currentAssignment.functionType||'').toUpperCase()}`;
-    $('formulaText').textContent=currentAssignment.formulaText;
+    const formula=currentAssignment.formula||legacyFormula(currentAssignment.formulaText);
+    const key=JSON.stringify([currentAssignment.roundId,formula,currentAssignment.formulaText]);
+    if(key!==renderedFormulaKey){
+      if(validFormula(formula)){
+        $('formulaText').innerHTML=formulaHtml(formula);
+        $('formulaText').setAttribute('aria-label',formulaPlainText(formula));
+      }else{$('formulaText').textContent=currentAssignment.formulaText;$('formulaText').removeAttribute('aria-label');}
+      renderedFormulaKey=key;fitFormula();
+    }
     $('questionHint').textContent='請在大螢幕 A～F 六張圖中找出正確圖形。';
   }else{
+    renderedFormulaKey='';$('formulaText').removeAttribute('aria-label');
     $('questionType').textContent='本關題目';
     $('formulaText').textContent=assignmentError?'題目讀取失敗':!gameState.roundId?'等待老師開始':!isActivePlayer?'等待老師勾選':'題目載入中…';
     $('questionHint').textContent=assignmentError||'題目會顯示在這裡，請留意手機畫面。';
   }
 }
+
+function fitFormula(){
+  const el=$('formulaText');el.style.fontSize='';
+  const equation=el.querySelector('.trig-math-equation');if(!equation||!el.clientWidth)return;
+  const width=equation.getBoundingClientRect().width;
+  if(width>el.clientWidth){const size=parseFloat(getComputedStyle(el).fontSize);el.style.fontSize=`${size*el.clientWidth/width*.98}px`;}
+}
+window.addEventListener('resize',fitFormula);
+document.fonts?.ready.then(fitFormula);
 
 function bindConfirmUI(){
   $('cancelCandidateBtn').addEventListener('click',()=>{if(currentCandidate)dismissedCandidateKey=`${currentCandidate.roundId}:${currentCandidate.createdAt}:${currentCandidate.optionId}`;currentCandidate=null;$('confirmOverlay').classList.add('hidden');});
@@ -142,7 +163,7 @@ function updateControllerState(){
   else if(running)$('gameMessage').textContent='正在取得本關題目，請稍候。';
   else if(gameState.status==='running'&&remaining<=0)$('gameMessage').textContent='時間到！等待本關結算。';
   else if(gameState.status==='paused')$('gameMessage').textContent='本關暫停。';
-  else if(gameState.status==='round-ended')$('gameMessage').textContent='本關已結算，等待老師進入下一關。';
+  else if(gameState.status==='round-ended')$('gameMessage').textContent=`本關已結算，${Math.max(0,Math.ceil(((gameState.nextRoundAt||serverNow())-serverNow())/1000))} 秒後自動進入下一關。`;
   else if(gameState.status==='finished')$('gameMessage').textContent='整場遊戲已完成，請看大螢幕最終排行榜。';
   else $('gameMessage').textContent='等待老師開始遊戲。';
   $('cooldownLabel').textContent=countdown?'倒數準備中':!running?'等待遊戲':!isActivePlayer?'待命':answerLocked?'答案已鎖定':!ready?'等待題目':cooldown>0?`${(cooldown/1000).toFixed(1)} 秒`:'可以射擊';
