@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>三角函數圖形射擊｜學生控制器</title>
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./trig.css">
+</head>
+<body class="trig-join-page">
+  <main class="controller-shell trig-controller-shell">
+    <section class="controller-card">
+      <h1>三角函數圖形射擊</h1>
+      <div id="status" class="notice info">正在驗證房間…</div>
+      <div id="roomInfo" class="hidden controller-room-meta">
+        <strong id="gameName">三角函數圖形射擊</strong>
+        <div>房間：<b id="roomCode">—</b></div>
+        <div id="timeInfo" class="muted"></div>
+      </div>
+
+      <div id="seatBox" class="hidden">
+        <label for="seat">座號</label>
+        <input id="seat" inputmode="numeric" min="1" max="99" placeholder="例如 12">
+        <div class="actions"><button id="continueBtn" class="btn primary">繼續</button></div>
+      </div>
+
+      <div id="controller" class="hidden">
+        <div class="controller-score-row trig-score-row">
+          <div><span>座號</span><strong id="seatLabel">—</strong></div>
+          <div><span>總分</span><strong id="scoreLabel">0</strong></div>
+          <div><span>關卡</span><strong id="roundLabel">—</strong></div>
+          <div><span>剩餘</span><strong id="timeLabel">0</strong></div>
+        </div>
+
+        <div id="gameMessage" class="notice info">等待老師開始。</div>
+        <div id="questionCard" class="trig-question-card hidden">
+          <span id="questionType">本關題目</span>
+          <div id="formulaText" class="trig-formula">—</div>
+          <small>請在大螢幕 A～F 六張圖中找出正確圖形。</small>
+        </div>
+
+        <div class="grip-mode-bar">
+          <div class="grip-mode-group">
+            <span class="grip-label">握持</span>
+            <div class="segmented-control">
+              <button id="portraitModeBtn" type="button" class="segment-btn active">直式</button>
+              <button id="landscapeModeBtn" type="button" class="segment-btn">橫式</button>
+            </div>
+          </div>
+          <div id="fireSideChooser" class="grip-mode-group hidden">
+            <span class="grip-label">FIRE</span>
+            <div class="segmented-control">
+              <button id="fireLeftBtn" type="button" class="segment-btn">左側</button>
+              <button id="fireRightBtn" type="button" class="segment-btn active">右側</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="controllerCore" class="controller-core portrait-layout fire-right">
+          <div class="aim-section">
+            <div class="aim-pad-head"><b>瞄準控制</b><button id="centerBtn" class="btn ghost">準星置中</button></div>
+            <div id="aimPad" class="aim-pad"><div class="aim-cross-lines"></div><div id="aimDot" class="aim-dot">＋</div><span>在此拖曳準星</span></div>
+          </div>
+          <button id="fireBtn" class="fire-btn" disabled><strong>FIRE</strong><span id="cooldownLabel">等待遊戲</span></button>
+        </div>
+
+        <div class="sensor-panel">
+          <button id="tiltBtn" class="btn ghost">啟用光線槍感應</button>
+          <button id="recenterTiltBtn" class="btn ghost" disabled>重新校正感應</button>
+          <div class="sensor-options">
+            <label><input id="invertXToggle" type="checkbox"> 左右反轉</label>
+            <label><input id="invertYToggle" type="checkbox"> 上下反轉</label>
+          </div>
+        </div>
+        <p id="controllerHint" class="muted">可拖曳準星；也可啟用手機旋轉感應。</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="confirmOverlay" class="trig-mobile-overlay hidden">
+    <div class="trig-confirm-card">
+      <span>你射中了</span>
+      <strong id="candidateOption">—</strong>
+      <p>確定鎖定這個答案嗎？鎖定後本關不能更改。</p>
+      <div class="trig-confirm-actions">
+        <button id="cancelCandidateBtn" class="btn ghost">取消，重新瞄準</button>
+        <button id="confirmCandidateBtn" class="btn primary">確定鎖定</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="resultOverlay" class="trig-mobile-overlay hidden">
+    <div class="trig-result-card">
+      <span id="resultStatus">本關得分</span>
+      <strong id="resultCounter">0</strong>
+      <p id="resultDetail">等待下一關。</p>
+      <button id="closeResultBtn" class="btn primary">知道了</button>
+    </div>
+  </div>
+
+  <script type="module" src="./trig-join.js"></script>
+</body>
+</html>

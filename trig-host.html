@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>三角函數圖形射擊｜教師控制</title>
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./trig.css">
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+</head>
+<body class="trig-host-page">
+  <div class="trig-shell">
+    <header class="trig-topbar">
+      <div>
+        <div class="eyebrow">Classroom Game Center</div>
+        <div class="trig-title-line">
+          <h1>三角函數圖形射擊</h1>
+          <span class="host-room-pill">房間 <b id="roomCode">—</b></span>
+          <span id="hostStatus" class="host-status-pill">驗證中…</span>
+        </div>
+      </div>
+      <div class="trig-metrics">
+        <span>關卡 <strong id="roundMetric">—</strong></span>
+        <span>時間 <strong id="timer">0</strong></span>
+        <span>鎖定 <strong id="lockedMetric">0/0</strong></span>
+      </div>
+    </header>
+
+    <section id="fatalNotice" class="notice info trig-notice">正在連接 Firebase…</section>
+
+    <section id="hostGame" class="hidden">
+      <div class="card trig-settings-card">
+        <div class="trig-settings-row">
+          <div class="trig-setting-block">
+            <span class="trig-setting-label">玩法</span>
+            <div class="segmented-control">
+              <button id="normalModeBtn" class="segment-btn active" type="button">普通版 7 關</button>
+              <button id="mixModeBtn" class="segment-btn" type="button">混搭版 5 關</button>
+            </div>
+          </div>
+          <div class="trig-setting-block">
+            <span class="trig-setting-label">題目類型</span>
+            <label class="trig-check"><input id="sinToggle" type="checkbox" checked> sin</label>
+            <label class="trig-check"><input id="cosToggle" type="checkbox" checked> cos</label>
+            <label class="trig-check"><input id="tanToggle" type="checkbox"> tan</label>
+          </div>
+          <div class="trig-setting-block">
+            <span class="trig-setting-label">配色</span>
+            <select id="themeSelect">
+              <option value="classic" selected>經典風格</option>
+              <option value="tech">科技風格</option>
+            </select>
+          </div>
+          <label class="trig-check sound-check"><input id="soundToggle" type="checkbox" checked> 音效</label>
+        </div>
+        <div class="trig-action-row">
+          <button id="startGameBtn" class="btn primary">開始第 1 關</button>
+          <button id="pauseBtn" class="btn ghost" disabled>暫停</button>
+          <button id="resumeBtn" class="btn success hidden">繼續</button>
+          <button id="settleBtn" class="btn ghost" disabled>提前結算本關</button>
+          <button id="nextRoundBtn" class="btn primary hidden">下一關</button>
+          <button id="stopGameBtn" class="btn danger" disabled>停止整場</button>
+          <button id="fullscreenBtn" class="btn ghost">遊戲全螢幕</button>
+          <button id="qrBtn" class="btn ghost">學生 QR Code</button>
+          <label class="toggle-label"><input id="crosshairToggle" type="checkbox" checked> 顯示準星</label>
+        </div>
+        <div id="roundMessage" class="muted">等待老師設定參賽學生並開始遊戲。</div>
+      </div>
+
+      <div id="trigStage" class="trig-stage">
+        <main class="trig-game-main">
+          <div class="trig-round-banner">
+            <div>
+              <span id="modeBadge" class="trig-badge">普通版</span>
+              <strong id="roundTitle">尚未開始</strong>
+              <span id="roundSkill" class="muted">—</span>
+            </div>
+            <div class="trig-function-badge"><span>本關</span><strong id="functionTypeLabel">—</strong></div>
+          </div>
+          <div id="gameField" class="trig-game-field">
+            <div id="graphGrid" class="trig-graph-grid"></div>
+            <div id="crosshairsLayer" class="crosshairs-layer"></div>
+            <div id="effectsLayer" class="effects-layer"></div>
+            <div id="fieldOverlay" class="trig-field-overlay">
+              <div>
+                <strong id="overlayTitle">三角函數圖形射擊</strong>
+                <span id="overlayText">手機會顯示函數式，請射擊大螢幕上的正確圖形。</span>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <aside class="score-panel trig-score-panel">
+          <div class="trig-side-head">
+            <h3>排行榜</h3>
+            <span id="gameStatusBadge" class="badge closed">等待</span>
+          </div>
+          <div id="fullscreenControls" class="fullscreen-game-controls trig-fs-controls">
+            <button id="fsPauseResumeBtn" class="btn ghost" disabled>暫停</button>
+            <button id="fsSettleBtn" class="btn ghost" disabled>結算</button>
+            <button id="fsNextBtn" class="btn primary" disabled>下一關</button>
+          </div>
+          <div id="leaderboard" class="leaderboard"><div class="muted">尚無成績。</div></div>
+          <hr>
+          <div class="trig-roster-head">
+            <div><h3>學生名單</h3><span id="playerCount" class="muted">0 人</span></div>
+            <div class="trig-roster-actions">
+              <button id="selectAllBtn" class="btn ghost tiny-btn">全選</button>
+              <button id="selectNoneBtn" class="btn ghost tiny-btn">全不選</button>
+              <button id="resetAllScoresBtn" class="btn ghost tiny-btn">全部歸零</button>
+            </div>
+          </div>
+          <div id="playerRoster" class="player-roster"><div class="muted">等待學生掃描 QR Code。</div></div>
+        </aside>
+      </div>
+    </section>
+  </div>
+
+  <dialog id="qrDialog" class="qr-dialog">
+    <div class="qr-dialog-card">
+      <div class="room-head"><div><h2>學生加入</h2><div>房間 <b id="qrRoomCode">—</b></div></div><button id="closeQrBtn" class="btn ghost">關閉</button></div>
+      <div id="hostQr" class="host-qr"></div>
+      <input id="studentJoinUrl" readonly>
+      <div class="actions"><button id="copyJoinUrlBtn" class="btn primary">複製學生網址</button></div>
+      <div id="qrHint" class="muted">學生掃描後輸入座號即可加入。</div>
+    </div>
+  </dialog>
+
+  <script type="module" src="./trig-host.js"></script>
+</body>
+</html>

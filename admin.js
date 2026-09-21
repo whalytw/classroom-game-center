@@ -336,8 +336,11 @@ function renderRooms(rooms) {
   roomsEl.innerHTML = '';
   for (const room of rooms) {
     const [stateClass, stateLabel] = roomState(room);
-    const studentUrl = `${baseUrl('./join.html')}?t=${encodeURIComponent(room.joinToken)}`;
-    const hostUrl = `${baseUrl('./host.html')}?t=${encodeURIComponent(room.hostToken)}`;
+    const gameConfig = games.find(g => g.id === room.gameId) || games[0];
+    const studentPage = gameConfig?.joinPage || './join.html';
+    const hostPage = gameConfig?.hostPage || './host.html';
+    const studentUrl = `${baseUrl(studentPage)}?t=${encodeURIComponent(room.joinToken)}`;
+    const hostUrl = `${baseUrl(hostPage)}?t=${encodeURIComponent(room.hostToken)}`;
     const el = document.createElement('article');
     el.className = 'room';
     el.innerHTML = `
@@ -451,6 +454,11 @@ async function archiveAndCleanupRoom(room, reason = 'closed', options = {}) {
     updates[`activePlayers/${room.roomCode}`] = null;
     updates[`gameState/${room.roomCode}`] = null;
     updates[`scores/${room.roomCode}`] = null;
+    updates[`trigAssignments/${room.roomCode}`] = null;
+    updates[`trigPrivate/${room.roomCode}`] = null;
+    updates[`trigCandidates/${room.roomCode}`] = null;
+    updates[`trigAnswers/${room.roomCode}`] = null;
+    updates[`trigResults/${room.roomCode}`] = null;
     await update(ref(db), updates);
   } catch (err) {
     if (!options.silent) alert(`清理房間失敗：${err?.message || err}`);
