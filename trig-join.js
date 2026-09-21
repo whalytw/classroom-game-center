@@ -18,11 +18,16 @@ let tiltEnabled=false,tiltBase=null,lastTiltUpdate=0,tiltInvertX=false,tiltInver
 let gripMode='portrait',fireSide='right';
 let currentAssignment=null,currentCandidate=null,answerLocked=false,dismissedCandidateKey='',lastResultKey='';
 let currentTotalScore=0,resultAnimation=null,audioCtx=null;
+let currentAnswer=null,pendingResult=null,confirmingRoundId=null,assignmentError='',gameError='',submissionError='';
+let serverOffset=0;
+const serverNow=()=>Date.now()+serverOffset;
+const roundName=n=>`第${['零','一','二','三','四','五','六','七'][n]||n}關`;
 
 async function boot(){
   try{
     if(!token)throw new Error('網址中沒有房間通行證。');
     const cred=await signInAnonymously(auth);uid=cred.user.uid;
+    onValue(ref(db,'.info/serverTimeOffset'),snap=>{serverOffset=Number(snap.val())||0;});
     const snap=await get(ref(db,`joinPasses/${token}`));if(!snap.exists())throw new Error('通行證不存在、已關閉或已到期。');
     pass=snap.val();if(pass.gameId!=='trig-graph-shooter')throw new Error('這個 QR Code 不是「三角函數圖形射擊」房間。');
     room=pass.roomCode;$('roomInfo').classList.remove('hidden');$('gameName').textContent=pass.gameName;$('roomCode').textContent=room;$('timeInfo').textContent=`開放：${fmt(pass.opensAt)}　到期：${fmt(pass.expiresAt)}`;
@@ -32,28 +37,61 @@ async function boot(){
 }
 
 async function joinGame(){
+  ensureAudio();
   seat=Number($('seat').value);if(!Number.isInteger(seat)||seat<1||seat>99){$('status').className='notice error';$('status').textContent='請輸入 1～99 的有效座號。';return;}
   $('continueBtn').disabled=true;
   try{
     const now=Date.now(),writes={};writes[`seatClaims/${room}/${seat}`]={uid,joinToken:token,joinedAt:now};writes[`playerAccess/${room}/${uid}`]={seat,joinToken:token,joinedAt:now};await update(ref(db),writes);
     const oldShot=await get(ref(db,`playerShots/${room}/${uid}`));seq=Number(oldShot.val()?.seq||0);
-    $('status').className='notice ok';$('status').textContent=`座號 ${seat} 已加入。請看前方大螢幕。`;$('seatBox').classList.add('hidden');$('controller').classList.remove('hidden');$('seatLabel').textContent=seat;
+    $('status').className='notice ok';$('status').textContent=`座號 ${seat} 已加入。題目會顯示在下方。`;$('seatBox').classList.add('hidden');$('controller').classList.remove('hidden');$('seatLabel').textContent=seat;document.body.classList.add('trig-controller-ready');
     bindController();bindConfirmUI();subscribeOwnAccess();subscribeParticipation();subscribeGame();subscribeScore();subscribeAssignment();subscribeCandidate();subscribeAnswer();subscribeResult();
   }catch(e){const msg=/permission/i.test(e?.message||'')?`座號 ${seat} 可能已被其他同學使用，請確認座號後再試。`:(e?.message||'加入失敗。');$('status').className='notice error';$('status').textContent=msg;$('continueBtn').disabled=false;}
 }
 
-function subscribeOwnAccess(){onValue(ref(db,`playerAccess/${room}/${uid}`),snap=>{if(snap.exists()||removedByTeacher)return;removedByTeacher=true;isActivePlayer=false;$('fireBtn').disabled=true;$('controller').classList.add('hidden');$('status').className='notice error';$('status').textContent=`座號 ${seat} 已由教師釋放。請重新掃描 QR Code，再輸入正確座號。`;try{const clean=new URL('./trig-join.html',location.href);clean.search='';history.replaceState({},'',clean.href);}catch{}});}
+function subscribeOwnAccess(){onValue(ref(db,`playerAccess/${room}/${uid}`),snap=>{if(snap.exists()||removedByTeacher)return;removedByTeacher=true;isActivePlayer=false;document.body.classList.remove('trig-controller-ready');$('fireBtn').disabled=true;$('controller').classList.add('hidden');$('status').className='notice error';$('status').textContent=`座號 ${seat} 已由教師釋放。請重新掃描 QR Code，再輸入正確座號。`;try{const clean=new URL('./trig-join.html',location.href);clean.search='';history.replaceState({},'',clean.href);}catch{}});}
 function subscribeParticipation(){onValue(ref(db,`activePlayers/${room}/${uid}`),snap=>{const prev=isActivePlayer;isActivePlayer=snap.val()===true;if(isActivePlayer&&!prev)scheduleAimWrite(true);updateControllerState();},()=>{isActivePlayer=false;updateControllerState();});}
-function subscribeGame(){onValue(ref(db,`gameState/${room}`),snap=>{const next=snap.val()||{status:'waiting',remainingMs:0};const changedRound=next.roundId&&next.roundId!==gameState.roundId;gameState=next;if(changedRound){answerLocked=false;currentCandidate=null;dismissedCandidateKey='';$('confirmOverlay').classList.add('hidden');$('resultOverlay').classList.add('hidden');}updateControllerState();},()=>{$('gameMessage').className='notice error';$('gameMessage').textContent='房間已關閉或通行證失效。';$('fireBtn').disabled=true;});setInterval(updateControllerState,200);}
+function subscribeGame(){
+  onValue(ref(db,`gameState/${room}`),snap=>{
+    const next=snap.val()||{status:'waiting',remainingMs:0};
+    const changedRound=next.roundId!==gameState.roundId;
+    gameState=next;gameError='';submissionError='';
+    if(changedRound){
+      confirmingRoundId=null;dismissedCandidateKey='';
+      if(currentCandidate?.roundId!==next.roundId)currentCandidate=null;
+      $('confirmOverlay').classList.add('hidden');$('resultOverlay').classList.add('hidden');
+    }
+    updateControllerState();maybeShowResult();
+  },()=>{gameError='房間已關閉或通行證失效。';updateControllerState();});
+  setInterval(updateControllerState,200);
+}
 function subscribeScore(){onValue(ref(db,`scores/${room}/${uid}`),snap=>{const d=snap.val()||{};currentTotalScore=Number(d.score||0);$('scoreLabel').textContent=currentTotalScore;});}
-function subscribeAssignment(){onValue(ref(db,`trigAssignments/${room}/${uid}`),snap=>{currentAssignment=snap.val()||null;renderAssignment();});}
-function subscribeCandidate(){onValue(ref(db,`trigCandidates/${room}/${uid}`),snap=>{const c=snap.val();if(!c||c.roundId!==gameState.roundId||answerLocked)return;const key=`${c.roundId}:${c.createdAt}:${c.optionId}`;if(key===dismissedCandidateKey)return;currentCandidate=c;$('candidateOption').textContent=`${c.optionId} 圖`;$('confirmOverlay').classList.remove('hidden');});}
-function subscribeAnswer(){onValue(ref(db,`trigAnswers/${room}/${uid}`),snap=>{const a=snap.val();answerLocked=!!(a&&a.roundId===gameState.roundId);updateControllerState();});}
-function subscribeResult(){onValue(ref(db,`trigResults/${room}/${uid}`),snap=>{const r=snap.val();if(!r||!r.roundId)return;const key=`${r.roundId}:${r.finishedAt}`;if(key===lastResultKey)return;lastResultKey=key;showRoundResult(r);});}
-
+function subscribeAssignment(){
+  onValue(ref(db,`trigAssignments/${room}/${uid}`),snap=>{
+    currentAssignment=snap.val()||null;assignmentError='';updateControllerState();
+  },()=>{assignmentError='題目讀取失敗，請重新整理；若仍無法顯示，請老師確認房間權限設定。';updateControllerState();});
+}
+function subscribeCandidate(){onValue(ref(db,`trigCandidates/${room}/${uid}`),snap=>{currentCandidate=snap.val()||null;updateControllerState();});}
+function subscribeAnswer(){onValue(ref(db,`trigAnswers/${room}/${uid}`),snap=>{currentAnswer=snap.val()||null;updateControllerState();});}
+function subscribeResult(){onValue(ref(db,`trigResults/${room}/${uid}`),snap=>{pendingResult=snap.val()||null;maybeShowResult();});}
+function maybeShowResult(){
+  const r=pendingResult;
+  if(!r||r.roundId!==gameState.roundId||!['round-ended','finished'].includes(gameState.status))return;
+  const key=`${r.roundId}:${r.finishedAt}`;if(key===lastResultKey)return;
+  lastResultKey=key;$('confirmOverlay').classList.add('hidden');showRoundResult(r);
+}
 function renderAssignment(){
-  if(!currentAssignment||currentAssignment.roundId!==gameState.roundId){$('questionCard').classList.add('hidden');$('formulaText').textContent='—';return;}
-  $('questionCard').classList.remove('hidden');$('questionType').textContent=`第 ${currentAssignment.roundNumber} 關｜${String(currentAssignment.functionType||'').toUpperCase()}`;$('formulaText').textContent=currentAssignment.formulaText||'—';
+  // Render on both state and assignment changes: Firebase callbacks may arrive in either order.
+  const ready=currentAssignment?.roundId===gameState.roundId&&!!currentAssignment?.formulaText;
+  $('questionCard').classList.remove('hidden');
+  if(ready){
+    $('questionType').textContent=`第 ${currentAssignment.roundNumber} 關｜${String(currentAssignment.functionType||'').toUpperCase()}`;
+    $('formulaText').textContent=currentAssignment.formulaText;
+    $('questionHint').textContent='請在大螢幕 A～F 六張圖中找出正確圖形。';
+  }else{
+    $('questionType').textContent='本關題目';
+    $('formulaText').textContent=assignmentError?'題目讀取失敗':!gameState.roundId?'等待老師開始':!isActivePlayer?'等待老師勾選':'題目載入中…';
+    $('questionHint').textContent=assignmentError||'題目會顯示在這裡，請留意手機畫面。';
+  }
 }
 
 function bindConfirmUI(){
@@ -63,27 +101,51 @@ function bindConfirmUI(){
 }
 
 async function confirmAnswer(){
-  if(!currentCandidate||answerLocked||gameState.status!=='running')return;
-  answerLocked=true;$('confirmCandidateBtn').disabled=true;
-  try{await set(ref(db,`trigAnswers/${room}/${uid}`),{roundId:gameState.roundId,roundNumber:Number(gameState.roundNumber||0),optionId:currentCandidate.optionId,lockedAt:serverTimestamp()});$('confirmOverlay').classList.add('hidden');$('gameMessage').className='notice ok';$('gameMessage').textContent=`答案已鎖定：${currentCandidate.optionId} 圖。等待本關結束。`;}
-  catch(e){answerLocked=false;$('gameMessage').className='notice error';$('gameMessage').textContent='答案鎖定失敗，請再試一次。';}
-  finally{$('confirmCandidateBtn').disabled=false;updateControllerState();}
+  const candidate=currentCandidate,roundId=gameState.roundId;
+  if(!candidate||candidate.roundId!==roundId||answerLocked||!isActivePlayer||gameState.status!=='running'||serverNow()>=gameState.endsAt||gameError)return;
+  ensureAudio();submissionError='';confirmingRoundId=roundId;$('confirmCandidateBtn').disabled=true;updateControllerState();
+  try{
+    const submitted={roundId,roundNumber:Number(gameState.roundNumber||0),optionId:candidate.optionId,lockedAt:serverTimestamp()};
+    await set(ref(db,`trigAnswers/${room}/${uid}`),submitted);
+    // Keep the captured candidate: the host may already have cleared it during settlement.
+    if(gameState.roundId===roundId){currentAnswer={...submitted,lockedAt:serverNow()};$('confirmOverlay').classList.add('hidden');}
+  }catch(e){
+    if(gameState.roundId===roundId)currentAnswer=null;
+    submissionError='答案未能鎖定，請確認本關仍在作答時間內後重試。';
+  }finally{confirmingRoundId=null;$('confirmCandidateBtn').disabled=false;updateControllerState();}
 }
 
 function updateControllerState(){
   if(removedByTeacher){$('fireBtn').disabled=true;return;}
-  let remaining=Number(gameState.remainingMs||0);if(gameState.status==='running'&&Number.isFinite(gameState.endsAt))remaining=Math.max(0,gameState.endsAt-Date.now());
+  answerLocked=!!gameState.roundId&&(currentAnswer?.roundId===gameState.roundId||confirmingRoundId===gameState.roundId);
+  renderAssignment();
+  let remaining=Number(gameState.remainingMs||0);
+  if(gameState.status==='running'&&Number.isFinite(gameState.endsAt))remaining=Math.max(0,gameState.endsAt-serverNow());
+  const countdown=gameState.status==='countdown';
+  const beats=gameState.countdownEndsAt?Math.max(1,Math.ceil((gameState.countdownEndsAt-serverNow())/1000)):null;
   $('timeLabel').textContent=Math.ceil(remaining/1000);$('roundLabel').textContent=gameState.roundNumber?`${gameState.roundNumber}/${gameState.totalRounds||'?'}`:'—';
-  const running=gameState.status==='running'&&remaining>0,canPlay=running&&isActivePlayer&&!answerLocked&&currentAssignment?.roundId===gameState.roundId;
-  const cooldown=Math.max(0,1000-(Date.now()-lastFireLocal));$('fireBtn').disabled=!canPlay||cooldown>0;
-  if(running&&!isActivePlayer){$('gameMessage').className='notice info';$('gameMessage').textContent='目前沒有被老師勾選參加這場遊戲。';}
-  else if(running&&answerLocked){$('gameMessage').className='notice ok';$('gameMessage').textContent='本關答案已鎖定，等待結算。';}
-  else if(running&&currentAssignment){$('gameMessage').className='notice ok';$('gameMessage').textContent='看手機題目，瞄準大螢幕 A～F 的答案後按 FIRE。';}
-  else if(gameState.status==='paused'){$('gameMessage').className='notice info';$('gameMessage').textContent='本關暫停。';}
-  else if(gameState.status==='round-ended'){$('gameMessage').className='notice info';$('gameMessage').textContent='本關已結算，等待老師進入下一關。';}
-  else if(gameState.status==='finished'){$('gameMessage').className='notice info';$('gameMessage').textContent='整場遊戲已完成，請看大螢幕最終排行榜。';}
-  else {$('gameMessage').className='notice info';$('gameMessage').textContent='等待老師開始遊戲。';}
-  $('cooldownLabel').textContent=!running?'等待遊戲':!isActivePlayer?'待命':answerLocked?'答案已鎖定':cooldown>0?`${(cooldown/1000).toFixed(1)} 秒`:'可以射擊';
+  const running=gameState.status==='running'&&remaining>0;
+  const ready=currentAssignment?.roundId===gameState.roundId&&!!currentAssignment?.formulaText;
+  const canPlay=running&&isActivePlayer&&!answerLocked&&ready&&!gameError&&!assignmentError;
+  const candidateKey=currentCandidate?`${currentCandidate.roundId}:${currentCandidate.createdAt}:${currentCandidate.optionId}`:'';
+  const showCandidate=canPlay&&currentCandidate?.roundId===gameState.roundId&&candidateKey!==dismissedCandidateKey;
+  $('confirmOverlay').classList.toggle('hidden',!showCandidate);
+  if(showCandidate)$('candidateOption').textContent=`${currentCandidate.optionId} 圖`;
+  const cooldown=Math.max(0,1000-(Date.now()-lastFireLocal));$('fireBtn').disabled=!canPlay||cooldown>0||!!showCandidate;
+  $('gameMessage').className='notice info';
+  if(gameError||assignmentError||submissionError){$('gameMessage').className='notice error';$('gameMessage').textContent=gameError||assignmentError||submissionError;}
+  else if((running||countdown)&&!isActivePlayer)$('gameMessage').textContent='目前沒有被老師勾選參加這場遊戲。';
+  else if(countdown)$('gameMessage').textContent=beats?`準備開始：${beats}！請先看下方手機題目。`:'題目準備中，請看手機畫面。';
+  else if(gameState.status==='settling')$('gameMessage').textContent=`${roundName(gameState.roundNumber)}完成！準備對答案與結算分數。`;
+  else if(running&&answerLocked){$('gameMessage').className='notice ok';$('gameMessage').textContent='本關答案已鎖定；全員鎖定後會自動結算。';}
+  else if(running&&ready){$('gameMessage').className='notice ok';$('gameMessage').textContent='看下方手機題目，瞄準大螢幕 A～F 的答案後按 FIRE。';}
+  else if(running)$('gameMessage').textContent='正在取得本關題目，請稍候。';
+  else if(gameState.status==='running'&&remaining<=0)$('gameMessage').textContent='時間到！等待本關結算。';
+  else if(gameState.status==='paused')$('gameMessage').textContent='本關暫停。';
+  else if(gameState.status==='round-ended')$('gameMessage').textContent='本關已結算，等待老師進入下一關。';
+  else if(gameState.status==='finished')$('gameMessage').textContent='整場遊戲已完成，請看大螢幕最終排行榜。';
+  else $('gameMessage').textContent='等待老師開始遊戲。';
+  $('cooldownLabel').textContent=countdown?'倒數準備中':!running?'等待遊戲':!isActivePlayer?'待命':answerLocked?'答案已鎖定':!ready?'等待題目':cooldown>0?`${(cooldown/1000).toFixed(1)} 秒`:'可以射擊';
   $('controller').classList.toggle('trig-answer-locked',answerLocked);
 }
 
@@ -103,7 +165,7 @@ function bindController(){
 function setAim(x,y,force=false){aim.x=clamp(x,.02,.98);aim.y=clamp(y,.02,.98);renderAimDot();scheduleAimWrite(force);}
 function renderAimDot(){$('aimDot').style.left=`${aim.x*100}%`;$('aimDot').style.top=`${aim.y*100}%`;}
 function scheduleAimWrite(force=false){if(!isActivePlayer)return;const now=Date.now(),due=force?0:Math.max(0,100-(now-lastAimWrite));if(aimWriteTimer)clearTimeout(aimWriteTimer);aimWriteTimer=setTimeout(async()=>{lastAimWrite=Date.now();try{await set(ref(db,`playerAim/${room}/${uid}`),{x:aim.x,y:aim.y,updatedAt:Date.now()});}catch{}},due);}
-async function fire(){const now=Date.now();if(gameState.status!=='running'||!isActivePlayer||answerLocked||currentAssignment?.roundId!==gameState.roundId)return;if(now-lastFireLocal<1000)return;lastFireLocal=now;seq+=1;$('fireBtn').disabled=true;if(navigator.vibrate)navigator.vibrate(35);try{await set(ref(db,`playerShots/${room}/${uid}`),{seq,x:aim.x,y:aim.y,shotAt:serverTimestamp()});}catch{$('gameMessage').className='notice error';$('gameMessage').textContent='射擊送出失敗，請稍後再試。';}updateControllerState();}
+async function fire(){const now=Date.now();if(gameState.status!=='running'||!isActivePlayer||answerLocked||!currentAssignment?.formulaText||currentAssignment?.roundId!==gameState.roundId||serverNow()>=gameState.endsAt||gameError||assignmentError)return;if(now-lastFireLocal<1000)return;lastFireLocal=now;seq+=1;$('fireBtn').disabled=true;if(navigator.vibrate)navigator.vibrate(35);try{await set(ref(db,`playerShots/${room}/${uid}`),{seq,x:aim.x,y:aim.y,shotAt:serverTimestamp()});}catch{$('gameMessage').className='notice error';$('gameMessage').textContent='射擊送出失敗，請稍後再試。';}updateControllerState();}
 
 async function toggleTilt(){if(tiltEnabled){disableTilt();return;}await enableTilt();}
 async function enableTilt(){try{if(typeof DeviceOrientationEvent==='undefined')throw new Error('此手機瀏覽器沒有方向感測器。');if(typeof DeviceOrientationEvent.requestPermission==='function'){const r=await DeviceOrientationEvent.requestPermission();if(r!=='granted')throw new Error('未取得方向感測器權限。');}tiltBase=null;tiltEnabled=true;sensorMode='yaw';window.removeEventListener('deviceorientation',onOrientation);window.addEventListener('deviceorientation',onOrientation,{passive:true});$('tiltBtn').textContent='關閉光線槍感應';$('tiltBtn').classList.add('sensor-active');$('recenterTiltBtn').disabled=false;$('controllerHint').textContent='請把手機朝向螢幕中央，稍候自動校正。';}catch(e){tiltEnabled=false;$('tiltBtn').textContent='啟用光線槍感應';$('tiltBtn').classList.remove('sensor-active');$('recenterTiltBtn').disabled=true;$('controllerHint').textContent=`光線槍感應無法啟用：${e?.message||'不支援'}。仍可使用拖曳瞄準。`;}}

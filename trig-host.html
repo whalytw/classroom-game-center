@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>三角函數圖形射擊｜教師控制</title>
   <link rel="stylesheet" href="./styles.css">
-  <link rel="stylesheet" href="./trig.css">
+  <link rel="stylesheet" href="./trig.css?v=3.1">
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 </head>
 <body class="trig-host-page">
@@ -96,6 +96,8 @@
             <span id="gameStatusBadge" class="badge closed">等待</span>
           </div>
           <div id="fullscreenControls" class="fullscreen-game-controls trig-fs-controls">
+            <div class="trig-fs-metrics"><span>剩餘 <b id="fsTimer">0</b> 秒</span><span>鎖定 <b id="fsLockedMetric">0/0</b></span></div>
+            <button id="fsStartBtn" class="btn primary">開始第 1 關</button>
             <button id="fsPauseResumeBtn" class="btn ghost" disabled>暫停</button>
             <button id="fsSettleBtn" class="btn ghost" disabled>結算</button>
             <button id="fsNextBtn" class="btn primary" disabled>下一關</button>
@@ -126,6 +128,6 @@
     </div>
   </dialog>
 
-  <script type="module" src="./trig-host.js"></script>
+  <script type="module" src="./trig-host.js?v=3.1"></script>
 </body>
 </html>

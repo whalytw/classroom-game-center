@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <title>三角函數圖形射擊｜學生控制器</title>
   <link rel="stylesheet" href="./styles.css">
-  <link rel="stylesheet" href="./trig.css">
+  <link rel="stylesheet" href="./trig.css?v=3.1">
 </head>
 <body class="trig-join-page">
   <main class="controller-shell trig-controller-shell">
@@ -33,10 +33,10 @@
         </div>
 
         <div id="gameMessage" class="notice info">等待老師開始。</div>
-        <div id="questionCard" class="trig-question-card hidden">
+        <div id="questionCard" class="trig-question-card" aria-live="polite">
           <span id="questionType">本關題目</span>
-          <div id="formulaText" class="trig-formula">—</div>
-          <small>請在大螢幕 A～F 六張圖中找出正確圖形。</small>
+          <div id="formulaText" class="trig-formula">等待老師開始</div>
+          <small id="questionHint">題目會顯示在這裡。</small>
         </div>
 
         <div class="grip-mode-bar">
@@ -98,6 +98,6 @@
     </div>
   </div>
 
-  <script type="module" src="./trig-join.js"></script>
+  <script type="module" src="./trig-join.js?v=3.1"></script>
 </body>
 </html>
