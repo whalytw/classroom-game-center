@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>三角函數圖形射擊｜教師控制</title>
   <link rel="stylesheet" href="./styles.css">
-  <link rel="stylesheet" href="./trig.css?v=3.2">
+  <link rel="stylesheet" href="./trig.css?v=3.3">
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 </head>
 <body class="trig-host-page">
@@ -94,7 +94,10 @@
           </div>
         </main>
 
-        <aside class="score-panel trig-score-panel">
+        <div id="sidebarSplitter" class="trig-sidebar-splitter" role="separator" tabindex="0" aria-label="拖曳調整學生面板寬度，方向鍵可微調" aria-orientation="vertical" aria-valuemin="210" aria-valuemax="480" aria-valuenow="300"></div>
+        <aside id="studentPanel" class="score-panel trig-score-panel">
+          <div class="trig-panel-toolbar"><span id="sidebarDrag" title="左右拖曳可移動面板">⠿ 拖曳移動面板</span><button id="dockSidebarBtn" class="btn ghost tiny-btn">移到左側</button></div>
+          <details class="trig-style-settings"><summary>圖表顯示設定</summary><div id="graphStyleInputs"></div><button id="resetGraphStyleBtn" class="btn ghost tiny-btn">恢復配色預設</button><small>立即套用大螢幕與手機預覽。字級為圖內相對大小。</small></details>
           <div class="trig-side-head">
             <h3>排行榜</h3>
             <span id="gameStatusBadge" class="badge closed">等待</span>
@@ -117,6 +120,7 @@
               <button id="resetAllScoresBtn" class="btn ghost tiny-btn">全部歸零</button>
             </div>
           </div>
+          <label class="trig-select-all"><input id="selectAllCheck" type="checkbox"> 全選／全不選</label><p id="rosterHint" class="muted"></p>
           <div id="playerRoster" class="player-roster"><div class="muted">等待學生掃描 QR Code。</div></div>
         </aside>
       </div>
@@ -133,6 +137,6 @@
     </div>
   </dialog>
 
-  <script type="module" src="./trig-host.js?v=3.2"></script>
+  <script type="module" src="./trig-host.js?v=3.3"></script>
 </body>
 </html>

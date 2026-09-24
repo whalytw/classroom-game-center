@@ -4,7 +4,8 @@ import {
   getDatabase, ref, get, update, set, onValue, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
 import { firebaseConfig } from './firebase-config.js';
-import { formulaHtml, formulaPlainText, validFormula, legacyFormula } from './trig-math.js?v=3.2';
+import { makeGraphSvg } from './trig-graph.js?v=3.3';
+import { formulaHtml, formulaPlainText, validFormula, legacyFormula } from './trig-math.js?v=3.3';
 
 const app=initializeApp(firebaseConfig,'trig-student-controller');
 const auth=getAuth(app);const db=getDatabase(app);const $=id=>document.getElementById(id);
@@ -46,7 +47,7 @@ async function joinGame(){
     const now=Date.now(),writes={};writes[`seatClaims/${room}/${seat}`]={uid,joinToken:token,joinedAt:now};writes[`playerAccess/${room}/${uid}`]={seat,joinToken:token,joinedAt:now};await update(ref(db),writes);
     const oldShot=await get(ref(db,`playerShots/${room}/${uid}`));seq=Number(oldShot.val()?.seq||0);
     $('status').className='notice ok';$('status').textContent=`座號 ${seat} 已加入。題目會顯示在下方。`;$('seatBox').classList.add('hidden');$('controller').classList.remove('hidden');$('seatLabel').textContent=seat;document.body.classList.add('trig-controller-ready');
-    bindController();bindConfirmUI();subscribeOwnAccess();subscribeParticipation();subscribeGame();subscribeScore();subscribeAssignment();subscribeCandidate();subscribeAnswer();subscribeResult();
+    bindController();bindConfirmUI();bindGraphPreview();subscribeOwnAccess();subscribeParticipation();subscribeGame();subscribeScore();subscribeAssignment();subscribeCandidate();subscribeAnswer();subscribeResult();
   }catch(e){const msg=/permission/i.test(e?.message||'')?`座號 ${seat} 可能已被其他同學使用，請確認座號後再試。`:(e?.message||'加入失敗。');$('status').className='notice error';$('status').textContent=msg;$('continueBtn').disabled=false;}
 }
 
@@ -64,6 +65,7 @@ function subscribeGame(){
       $('confirmOverlay').classList.add('hidden');$('resultOverlay').classList.add('hidden');
     }
     updateControllerState();maybeShowResult();
+    if(changedRound)scheduleAimWrite(true);
   },()=>{gameError='房間已關閉或通行證失效。';updateControllerState();});
   setInterval(updateControllerState,200);
 }
@@ -139,7 +141,7 @@ async function confirmAnswer(){
 function updateControllerState(){
   if(removedByTeacher){$('fireBtn').disabled=true;return;}
   answerLocked=!!gameState.roundId&&(currentAnswer?.roundId===gameState.roundId||confirmingRoundId===gameState.roundId);
-  renderAssignment();
+  renderAssignment();renderGraphPreview();
   let remaining=Number(gameState.remainingMs||0);
   if(gameState.status==='running'&&Number.isFinite(gameState.endsAt))remaining=Math.max(0,gameState.endsAt-serverNow());
   const countdown=gameState.status==='countdown';
@@ -158,7 +160,7 @@ function updateControllerState(){
   else if((running||countdown)&&!isActivePlayer)$('gameMessage').textContent='目前沒有被老師勾選參加這場遊戲。';
   else if(countdown)$('gameMessage').textContent=beats?`準備開始：${beats}！請先看下方手機題目。`:'題目準備中，請看手機畫面。';
   else if(gameState.status==='settling')$('gameMessage').textContent=`${roundName(gameState.roundNumber)}完成！準備對答案與結算分數。`;
-  else if(running&&answerLocked){$('gameMessage').className='notice ok';$('gameMessage').textContent='本關答案已鎖定；全員鎖定後會自動結算。';}
+  else if(running&&answerLocked){$('gameMessage').className='notice ok';$('gameMessage').textContent='本關答案已鎖定，準星暫時隱藏；下一關恢復。';}
   else if(running&&ready){$('gameMessage').className='notice ok';$('gameMessage').textContent='看下方手機題目，瞄準大螢幕 A～F 的答案後按 FIRE。';}
   else if(running)$('gameMessage').textContent='正在取得本關題目，請稍候。';
   else if(gameState.status==='running'&&remaining<=0)$('gameMessage').textContent='時間到！等待本關結算。';
@@ -183,9 +185,9 @@ function bindController(){
   $('invertYToggle').addEventListener('change',()=>{tiltInvertY=$('invertYToggle').checked;try{localStorage.setItem('classroomGameTiltInvertY',tiltInvertY?'1':'0');}catch{}if(tiltEnabled)recalibrateTilt();});
   $('recenterTiltBtn').addEventListener('click',()=>{if(tiltEnabled){recalibrateTilt();$('controllerHint').textContent='已重新校正，請把手機朝向螢幕中央。';}});
 }
-function setAim(x,y,force=false){aim.x=clamp(x,.02,.98);aim.y=clamp(y,.02,.98);renderAimDot();scheduleAimWrite(force);}
+function setAim(x,y,force=false){if(answerLocked)return;aim.x=clamp(x,.02,.98);aim.y=clamp(y,.02,.98);renderAimDot();renderGraphPreview();scheduleAimWrite(force);}
 function renderAimDot(){$('aimDot').style.left=`${aim.x*100}%`;$('aimDot').style.top=`${aim.y*100}%`;}
-function scheduleAimWrite(force=false){if(!isActivePlayer)return;const now=Date.now(),due=force?0:Math.max(0,100-(now-lastAimWrite));if(aimWriteTimer)clearTimeout(aimWriteTimer);aimWriteTimer=setTimeout(async()=>{lastAimWrite=Date.now();try{await set(ref(db,`playerAim/${room}/${uid}`),{x:aim.x,y:aim.y,updatedAt:Date.now()});}catch{}},due);}
+function scheduleAimWrite(force=false){if(!isActivePlayer||answerLocked)return;const now=Date.now(),due=force?0:Math.max(0,100-(now-lastAimWrite));if(aimWriteTimer)clearTimeout(aimWriteTimer);aimWriteTimer=setTimeout(async()=>{if(!isActivePlayer||answerLocked)return;lastAimWrite=Date.now();try{await set(ref(db,`playerAim/${room}/${uid}`),{x:aim.x,y:aim.y,updatedAt:Date.now()});}catch{}},due);}
 async function fire(){const now=Date.now();if(gameState.status!=='running'||!isActivePlayer||answerLocked||!currentAssignment?.formulaText||currentAssignment?.roundId!==gameState.roundId||serverNow()>=gameState.endsAt||gameError||assignmentError)return;if(now-lastFireLocal<1000)return;lastFireLocal=now;seq+=1;$('fireBtn').disabled=true;if(navigator.vibrate)navigator.vibrate(35);try{await set(ref(db,`playerShots/${room}/${uid}`),{seq,x:aim.x,y:aim.y,shotAt:serverTimestamp()});}catch{$('gameMessage').className='notice error';$('gameMessage').textContent='射擊送出失敗，請稍後再試。';}updateControllerState();}
 
 async function toggleTilt(){if(tiltEnabled){disableTilt();return;}await enableTilt();}
@@ -205,5 +207,51 @@ function showRoundResult(r){
 function ensureAudio(){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;if(!audioCtx)audioCtx=new C();if(audioCtx.state==='suspended')audioCtx.resume();return audioCtx;}catch{return null;}}
 function tone(freq,d=.05,vol=.035){const ctx=ensureAudio();if(!ctx)return;const o=ctx.createOscillator(),g=ctx.createGain();o.type='triangle';o.frequency.value=freq;g.gain.setValueAtTime(vol,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+d);o.connect(g).connect(ctx.destination);o.start();o.stop(ctx.currentTime+d);}
 function playTick(){tone(740,.035,.025);}function playScoreFinish(){tone(880,.08,.045);setTimeout(()=>tone(1100,.1,.045),80);if(navigator.vibrate)navigator.vibrate([30,40,45]);}
+
+let previewKey='',previewScale=1,previewPan={x:0,y:0},previewPoints=new Map(),previewGesture=null;
+function renderGraphPreview(){
+  const view=gameState.graphView;
+  const valid=isActivePlayer&&view?.roundId===gameState.roundId&&['countdown','running','paused'].includes(gameState.status);
+  const hit=valid&&Array.isArray(view.rects)?view.rects.find(r=>aim.x>=r.left&&aim.x<=r.right&&aim.y>=r.top&&aim.y<=r.bottom):null;
+  const p=hit&&Array.isArray(view.options)?view.options.find(p=>p.id===hit.id):null;
+  const key=p?JSON.stringify([view.roundId,p,view.yRange,view.style,view.theme]):'';
+  if(key===previewKey)return;
+  previewKey=key;previewPan={x:0,y:0};
+  $('previewTitle').textContent=p?`準星所在：${p.id} 圖`:'瞄準圖形預覽';
+  $('previewEmpty').classList.toggle('hidden',!!p);
+  $('graphPreviewCanvas').innerHTML=p?makeGraphSvg(p,view.yRange,view.style,view.theme):'';
+  $('graphPreviewViewport').classList.toggle('preview-tech',view?.theme==='tech');
+  applyPreviewTransform();
+}
+function applyPreviewTransform(){
+  previewScale=clamp(previewScale,.5,2);
+  const box=$('graphPreviewViewport'),limitX=box.clientWidth*previewScale/2,limitY=box.clientHeight*previewScale/2;
+  previewPan.x=clamp(previewPan.x,-limitX,limitX);previewPan.y=clamp(previewPan.y,-limitY,limitY);
+  $('graphPreviewCanvas').style.transform=`translate(${previewPan.x}px,${previewPan.y}px) scale(${previewScale})`;
+  $('previewZoom').value=String(Math.round(previewScale*100));$('previewZoomValue').textContent=`${Math.round(previewScale*100)}%`;
+}
+function seedPreviewGesture(){
+  const points=[...previewPoints.values()];
+  previewGesture=points.length?{points,scale:previewScale,pan:{...previewPan}}:null;
+}
+function bindGraphPreview(){
+  $('previewZoom').addEventListener('input',e=>{previewScale=Number(e.target.value)/100;applyPreviewTransform();});
+  new ResizeObserver(()=>document.documentElement.style.setProperty('--trig-question-height',`${$('questionCard').getBoundingClientRect().height}px`)).observe($('questionCard'));
+  $('resetPreviewBtn').addEventListener('click',()=>{previewScale=1;previewPan={x:0,y:0};applyPreviewTransform();});
+  const box=$('graphPreviewViewport');
+  box.addEventListener('pointerdown',e=>{if(!previewKey)return;box.setPointerCapture(e.pointerId);previewPoints.set(e.pointerId,{x:e.clientX,y:e.clientY});seedPreviewGesture();e.preventDefault();});
+  box.addEventListener('pointermove',e=>{
+    if(!previewPoints.has(e.pointerId)||!previewGesture)return;
+    previewPoints.set(e.pointerId,{x:e.clientX,y:e.clientY});const now=[...previewPoints.values()],before=previewGesture.points;
+    if(now.length>=2&&before.length>=2){
+      const distance=p=>Math.hypot(p[1].x-p[0].x,p[1].y-p[0].y);
+      previewScale=clamp(previewGesture.scale*distance(now)/Math.max(1,distance(before)),.5,2);
+      previewPan={x:previewGesture.pan.x+(now[0].x+now[1].x-before[0].x-before[1].x)/2,y:previewGesture.pan.y+(now[0].y+now[1].y-before[0].y-before[1].y)/2};
+    }else{previewPan={x:previewGesture.pan.x+now[0].x-before[0].x,y:previewGesture.pan.y+now[0].y-before[0].y};}
+    applyPreviewTransform();e.preventDefault();
+  });
+  const end=e=>{previewPoints.delete(e.pointerId);seedPreviewGesture();};
+  for(const type of ['pointerup','pointercancel','lostpointercapture'])box.addEventListener(type,end);
+}
 
 boot();

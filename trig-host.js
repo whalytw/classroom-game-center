@@ -4,7 +4,8 @@ import {
   getDatabase, ref, get, set, update, onValue, onChildAdded, onChildChanged
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
 import { firebaseConfig } from './firebase-config.js';
-import { createFormula, formulaPlainText } from './trig-math.js?v=3.2';
+import { makeGraphSvg, computeYRange, evalTrig, normalizeGraphStyle } from './trig-graph.js?v=3.3';
+import { createFormula, formulaPlainText } from './trig-math.js?v=3.3';
 
 const app = initializeApp(firebaseConfig, 'trig-host-control');
 const auth = getAuth(app);
@@ -57,6 +58,8 @@ let uiTimer = null;
 let settling = false;
 let soundEnabled = true;
 let visualTheme = 'classic';
+let graphStyle={}, graphView=null, graphSyncTimer=null, rosterSignature='';
+let pendingRoster={}, sidebarWidth=300, sidebarSide='right';
 let audioCtx = null;
 let serverOffset = 0;
 let starting = false;
@@ -105,6 +108,7 @@ async function boot() {
     loadLocalSettings();
     renderDurationSettings();
     bindControls();
+    bindGraphSettings();bindSidebar();
     await setupStudentQr();
     subscribePassValidity();
     subscribePlayers();
@@ -124,6 +128,7 @@ async function boot() {
 function loadLocalSettings() {
   try { visualTheme = localStorage.getItem('trigGraphTheme') === 'tech' ? 'tech' : 'classic'; } catch {}
   try{const saved=JSON.parse(localStorage.getItem('trigRoundDurations')||'null');if(saved)durationsByMode={normal:normalizeDurations(saved.normal,'normal'),mix:normalizeDurations(saved.mix,'mix')};}catch{}
+  try{graphStyle=JSON.parse(localStorage.getItem('trigGraphStyle')||'{}');pendingRoster=JSON.parse(localStorage.getItem(`trigPendingRoster:${token}`)||'{}');}catch{}
   sessionDurations=[...durationsByMode[sessionMode]];
   $('themeSelect').value = visualTheme;
   applyTheme();
@@ -162,7 +167,7 @@ function bindControls() {
   });
 }
 
-function applyTheme() { $('trigStage').classList.toggle('theme-tech',visualTheme==='tech'); }
+function applyTheme() { $('trigStage').classList.toggle('theme-tech',visualTheme==='tech');if(roundOptions.length)renderGraphs(roundOptions,round.functionType);renderGraphSettings(); }
 
 function setSessionMode(mode) {
   if (['running','paused'].includes(round.status) || roundNumber>0 && round.status!=='finished') return;
@@ -272,6 +277,7 @@ async function restoreExistingSession() {
     roundNumber=Number(state.roundNumber)||0;
     typeQueue=Array.isArray(state.typeQueue)?state.typeQueue:[];
     soundEnabled=state.soundEnabled!==false;$('soundToggle').checked=soundEnabled;
+    graphStyle=state.graphView?.style||graphStyle;
     visualTheme=state.visualTheme==='tech'?'tech':'classic';$('themeSelect').value=visualTheme;applyTheme();
     round={
       status:state.status||'waiting',roundId:state.roundId||null,startedAt:Number(state.startedAt||0),endsAt:Number(state.endsAt||0),
@@ -306,6 +312,7 @@ async function startNewGame() {
   ensureAudio(); // The click unlocks audio before any asynchronous Firebase work.
   const types=selectedTypes();
   if(!types.length){alert('請至少勾選 sin、cos、tan 其中一種題型。');return;}
+  try{await applyPendingRoster();}catch(e){reportError(e);return;}
   if(!activeCount()){alert('請先在右側學生名單勾選至少 1 位本局參加學生。');return;}
   starting=true;updateUI();
   try{
@@ -324,6 +331,7 @@ async function startNextRound() {
   if(starting||settling||round.status!=='round-ended')return;
   if(roundNumber>=totalRounds)return;
   stopAutoNext();
+  try{await applyPendingRoster();}catch(e){reportError(e);return;}
   if(!activeCount()){showFieldOverlay('尚無參賽學生','請先勾選參賽學生，再按「立即下一關」。');return;}
   ensureAudio();starting=true;updateUI();
   try{await prepareRound();}catch(e){reportError(e);if(round.status==='round-ended')showFieldOverlay('下一關尚未開始','請確認連線或參賽名單，再按「立即下一關」。');}
@@ -494,7 +502,7 @@ function gameStatePayload(extra={}){
     countdownEndsAt:round.countdownEndsAt||0,pauseStartedAt:round.pauseStartedAt||0,pauseWindows:round.pauseWindows||[],
     completionEndsAt:round.completionEndsAt||0,finishAfter:!!round.finishAfter,completionReason:round.completionReason||'',
     functionType:round.functionType||null,skillKey:round.skillKey||null,skillLabel:round.skillLabel||'—',
-    soundEnabled,visualTheme,controllerUid:hostUid,updatedAt:serverNow(),...extra};
+    graphView,soundEnabled,visualTheme,controllerUid:hostUid,updatedAt:serverNow(),...extra};
 }
 async function writeGameState(){if(isHostAuthorized())await set(ref(db,`gameState/${roomCode}`),gameStatePayload());}
 
@@ -533,7 +541,8 @@ function updateUI(){
   $('fsPauseResumeBtn').disabled=!inRound||busy;$('fsPauseResumeBtn').textContent=paused?'繼續':'暫停';
   $('fsSettleBtn').disabled=$('settleBtn').disabled;$('fsSettleBtn').textContent=round.status==='settling'&&!settling?'重試結算':'結算';
   $('fsNextBtn').disabled=busy||round.status!=='round-ended';$('nextRoundBtn').disabled=busy;
-  for(const id of ['selectAllBtn','selectNoneBtn','resetAllScoresBtn'])$(id).disabled=rosterLocked();
+  $('resetAllScoresBtn').disabled=rosterLocked();
+  for(const id of ['selectAllBtn','selectNoneBtn','selectAllCheck'])$(id).disabled=starting||settling;
   const lockSettings=starting||roundNumber>0&&round.status!=='finished';
   for(const id of ['normalModeBtn','mixModeBtn','sinToggle','cosToggle','tanToggle'])$(id).disabled=lockSettings;
   $('durationSettings').disabled=lockSettings;
@@ -580,13 +589,28 @@ function renderCrosshairs(){
   const layer=$('crosshairsLayer');layer.replaceChildren();if(!$('crosshairToggle').checked)return;
   const now=Date.now();
   for(const [uid,a] of Object.entries(aims)){
-    if(!players[uid]||activePlayers[uid]!==true)continue;if(!Number.isFinite(a.x)||!Number.isFinite(a.y))continue;if(Number.isFinite(a.updatedAt)&&now-a.updatedAt>15000)continue;
+    if(!players[uid]||activePlayers[uid]!==true||!correctByUid[uid]||!['countdown','running','paused'].includes(round.status)||answers[uid]?.roundId===round.roundId)continue;if(!Number.isFinite(a.x)||!Number.isFinite(a.y))continue;if(Number.isFinite(a.updatedAt)&&now-a.updatedAt>15000)continue;
     const el=document.createElement('div');el.className='player-crosshair';el.style.left=`${clamp(a.x,0,1)*100}%`;el.style.top=`${clamp(a.y,0,1)*100}%`;el.style.setProperty('--seat-hue',String(((Number(players[uid].seat)||1)*47)%360));el.innerHTML=`<span>＋</span><b>${safeText(players[uid].seat)}</b>`;layer.appendChild(el);
   }
 }
 
-async function setPlayerActive(uid,active){if(!players[uid])return;if(rosterLocked()){alert('一旦整場遊戲開始，請在本關結束後再調整下次參賽名單。');return;}await set(ref(db,`activePlayers/${roomCode}/${uid}`),active?true:null);}
-async function setAllPlayersActive(active){if(rosterLocked())return;const writes={};for(const uid of Object.keys(players))writes[uid]=active?true:null;await update(ref(db,`activePlayers/${roomCode}`),writes);}
+function selectedForNext(uid){return Object.hasOwn(pendingRoster,uid)?pendingRoster[uid]:activePlayers[uid]===true;}
+function savePendingRoster(){try{localStorage.setItem(`trigPendingRoster:${token}`,JSON.stringify(pendingRoster));}catch{}}
+async function applyPendingRoster(){
+  if(!Object.keys(pendingRoster).length)return;
+  const writes={};for(const [uid,active] of Object.entries(pendingRoster))if(players[uid])writes[uid]=active?true:null;
+  await update(ref(db,`activePlayers/${roomCode}`),writes);pendingRoster={};savePendingRoster();renderRoster();
+}
+async function setRosterSelection(uids,active){
+  if(starting||settling)return;
+  try{
+    if(roundNumber>0&&round.status!=='finished'||Object.keys(pendingRoster).length){
+      for(const uid of uids)pendingRoster[uid]=active;savePendingRoster();renderRoster();
+    }else{const writes={};for(const uid of uids)writes[uid]=active?true:null;await update(ref(db,`activePlayers/${roomCode}`),writes);}
+  }catch(e){reportError(e);renderRoster();}
+}
+async function setPlayerActive(uid,active){if(players[uid])await setRosterSelection([uid],active);}
+async function setAllPlayersActive(active){await setRosterSelection(Object.keys(players),active);}
 async function resetAllScores(){if(rosterLocked())return;const now=Date.now(),writes={};for(const [uid,p] of Object.entries(players))writes[`scores/${roomCode}/${uid}`]={seat:Number(p.seat),score:0,lastRoundScore:0,updatedAt:now};await update(ref(db),writes);}
 async function resetActiveScores(){const now=Date.now(),writes={};for(const uid of activeUids())writes[`scores/${roomCode}/${uid}`]={seat:Number(players[uid]?.seat||0),score:0,lastRoundScore:0,updatedAt:now};await update(ref(db),writes);}
 async function resetOneScore(uid){if(rosterLocked())return;const p=players[uid];if(!p)return;await set(ref(db,`scores/${roomCode}/${uid}`),{seat:Number(p.seat),score:0,lastRoundScore:0,updatedAt:Date.now()});}
@@ -600,13 +624,19 @@ async function releaseSeat(uid){
 
 function renderRoster(){
   const roster=$('playerRoster');const arr=Object.entries(players).sort((a,b)=>Number(a[1].seat)-Number(b[1].seat));
+  const selected=arr.filter(([uid])=>selectedForNext(uid)).length;
+  $('selectAllCheck').checked=arr.length>0&&selected===arr.length;$('selectAllCheck').indeterminate=selected>0&&selected<arr.length;
+  $('rosterHint').textContent=`已勾選 ${selected}/${arr.length} 人。`+(roundNumber>0&&round.status!=='finished'||Object.keys(pendingRoster).length?'調整將於下一關（或重新開始）生效。':'勾選本場參賽學生。');
+  const signature=JSON.stringify([players,activePlayers,pendingRoster,scores,answers,round.roundId,round.status,starting,settling]);
+  if(signature===rosterSignature)return;rosterSignature=signature;
   if(!arr.length){roster.innerHTML='<div class="muted">等待學生掃描 QR Code。</div>';return;}
   roster.replaceChildren();
   for(const [uid,p] of arr){
     const locked=answers[uid]?.roundId===round.roundId;
     const row=document.createElement('div');row.className=`trig-player-row ${activePlayers[uid]===true?'active':''}`;
-    row.innerHTML=`<div><label class="trig-player-main"><input type="checkbox" ${activePlayers[uid]===true?'checked':''}><span>${safeText(p.seat)}號</span></label><div class="trig-player-status">${round.status==='running'||round.status==='paused'?(locked?'<span class="trig-locked-chip">已鎖定</span>':'<span class="trig-working-chip">作答中</span>'):activePlayers[uid]===true?'本場參加':'待命'}</div></div><div class="trig-player-score">${fmtScore(scores[uid]?.score)}</div><div><button class="btn ghost tiny-btn reset-one">歸零</button><button class="btn danger tiny-btn release-one">釋放</button></div>`;
-    row.querySelectorAll('input,button').forEach(el=>el.disabled=rosterLocked());
+    row.innerHTML=`<div><label class="trig-player-main"><input type="checkbox" ${selectedForNext(uid)?'checked':''}><span>${safeText(p.seat)}號</span></label><div class="trig-player-status">${round.status==='running'||round.status==='paused'?(locked?'<span class="trig-locked-chip">已鎖定</span>':'<span class="trig-working-chip">作答中</span>'):activePlayers[uid]===true?'本場參加':'待命'}</div></div><div class="trig-player-score">${fmtScore(scores[uid]?.score)}</div><div><button class="btn ghost tiny-btn reset-one">歸零</button><button class="btn danger tiny-btn release-one">釋放</button></div>`;
+    row.querySelectorAll('button').forEach(el=>el.disabled=rosterLocked());
+    row.querySelector('input').disabled=starting||settling;
     row.querySelector('input').addEventListener('change',e=>setPlayerActive(uid,e.target.checked));
     row.querySelector('.reset-one').addEventListener('click',()=>resetOneScore(uid));row.querySelector('.release-one').addEventListener('click',()=>releaseSeat(uid));roster.appendChild(row);
   }
@@ -641,7 +671,6 @@ function generateParams(type,skill){
   return {type,a:a[0],aLabel:a[1],b:b[0],bLabel:b[1],h:h[0],hLabel:h[1],k};
 }
 function paramKey(p){return `${p.type}|${p.a.toFixed(5)}|${p.b.toFixed(5)}|${p.h.toFixed(5)}|${p.k}`;}
-function evalTrig(p,x){const u=p.b*(x-p.h);let base;if(p.type==='sin')base=Math.sin(u);else if(p.type==='cos')base=Math.cos(u);else{const c=Math.cos(u);if(Math.abs(c)<0.035)return NaN;base=Math.tan(u);}const y=p.a*base+p.k;return Number.isFinite(y)?y:NaN;}
 function graphsTooSimilar(a,b){
   const domain=a.type==='tan'?[-Math.PI,Math.PI]:[-2*Math.PI,2*Math.PI];let sum=0,n=0;
   for(let i=0;i<=120;i++){const x=domain[0]+(domain[1]-domain[0])*i/120,ya=evalTrig(a,x),yb=evalTrig(b,x);if(!Number.isFinite(ya)||!Number.isFinite(yb)||Math.abs(ya)>8||Math.abs(yb)>8)continue;sum+=Math.abs(ya-yb);n++;}
@@ -651,35 +680,9 @@ function graphsTooSimilar(a,b){
 function renderGraphs(options,type){
   const grid=$('graphGrid');grid.replaceChildren();
   const yr=computeYRange(options,type);
-  options.forEach(p=>{const card=document.createElement('div');card.className='trig-graph-card';card.dataset.optionId=p.id;card.innerHTML=`<span class="option-label">${p.id}</span>${makeGraphSvg(p,yr)}`;grid.appendChild(card);});
+  options.forEach(p=>{const card=document.createElement('div');card.className='trig-graph-card';card.dataset.optionId=p.id;card.innerHTML=`<span class="option-label">${p.id}</span>${makeGraphSvg(p,yr,graphStyle,visualTheme)}`;grid.appendChild(card);});
+  refreshGraphView();queueGraphSync();
 }
-function computeYRange(options,type){
-  if(type==='tan'){const ks=options.map(p=>p.k);return {min:Math.min(...ks)-4.5,max:Math.max(...ks)+4.5};}
-  let min=Infinity,max=-Infinity;for(const p of options){min=Math.min(min,p.k-p.a);max=Math.max(max,p.k+p.a);}min=Math.floor(min-0.5);max=Math.ceil(max+0.5);if(max-min<4){const c=(max+min)/2;min=c-2;max=c+2;}return {min,max};
-}
-function makeGraphSvg(p,yr){
-  const W=360,H=220,L=38,R=348,T=14,B=198;const xmin=p.type==='tan'?-Math.PI: -2*Math.PI,xmax=p.type==='tan'?Math.PI:2*Math.PI;
-  const sx=x=>L+(x-xmin)/(xmax-xmin)*(R-L), sy=y=>B-(y-yr.min)/(yr.max-yr.min)*(B-T);
-  let grid='',axes='',labels='',asym='';
-  const xStep=Math.PI/2;for(let m=Math.ceil(xmin/xStep);m<=Math.floor(xmax/xStep);m++){const x=m*xStep,px=sx(x);grid+=`<line class="trig-grid-line" x1="${px}" y1="${T}" x2="${px}" y2="${B}"/>`;if(m!==0)labels+=`<text class="trig-tick-label" x="${px}" y="${sy(0)+13}" text-anchor="middle">${piTick(m)}</text>`;}
-  for(let y=Math.ceil(yr.min);y<=Math.floor(yr.max);y++){const py=sy(y);grid+=`<line class="trig-grid-line" x1="${L}" y1="${py}" x2="${R}" y2="${py}"/>`;if(y!==0)labels+=`<text class="trig-tick-label" x="${L-5}" y="${py+3}" text-anchor="end">${y}</text>`;}
-  if(yr.min<=0&&yr.max>=0)axes+=`<line class="trig-axis" x1="${L}" y1="${sy(0)}" x2="${R}" y2="${sy(0)}"/>`;
-  if(xmin<=0&&xmax>=0)axes+=`<line class="trig-axis" x1="${sx(0)}" y1="${T}" x2="${sx(0)}" y2="${B}"/>`;
-  if(p.type==='tan'){
-    const start=Math.floor((p.b*(xmin-p.h)-Math.PI/2)/Math.PI)-1,end=Math.ceil((p.b*(xmax-p.h)-Math.PI/2)/Math.PI)+1;
-    for(let n=start;n<=end;n++){const x=p.h+(Math.PI/2+n*Math.PI)/p.b;if(x>xmin&&x<xmax)asym+=`<line class="trig-asymptote" x1="${sx(x)}" y1="${T}" x2="${sx(x)}" y2="${B}"/>`;}
-  }
-  let d='',pen=false,lastY=null;const N=420;
-  for(let i=0;i<=N;i++){
-    const x=xmin+(xmax-xmin)*i/N,y=evalTrig(p,x);const bad=!Number.isFinite(y)||y<yr.min-0.6||y>yr.max+0.6||lastY!==null&&Math.abs(y-lastY)>(yr.max-yr.min)*0.55;
-    if(bad){pen=false;lastY=null;continue;}const px=sx(x),py=sy(y);d+=`${pen?' L':' M'} ${px.toFixed(2)} ${py.toFixed(2)}`;pen=true;lastY=y;
-  }
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${p.id} 圖"><rect x="0" y="0" width="${W}" height="${H}" fill="transparent"/>${grid}${asym}${axes}<path class="trig-curve" d="${d}"/>${labels}</svg>`;
-}
-function piTick(m){
-  if(m===0)return'0';const sign=m<0?'−':'';const a=Math.abs(m);if(a===1)return`${sign}π/2`;if(a===2)return`${sign}π`;if(a%2===0)return`${sign}${a/2}π`;return`${sign}${a}π/2`;
-}
-
 function stopCue(){for(const node of cueNodes){try{node.stop();}catch{}}cueNodes=[];}
 function playCue(notes){
   if(!soundEnabled)return;const ctx=ensureAudio();if(!ctx)return;stopCue();
@@ -697,5 +700,68 @@ function playStartSound(){playCue([[523,.0,.16],[659,.14,.16],[784,.28,.16],[104
 function playFinishSound(){playCue([[523,0,.24],[659,.2,.24],[784,.4,.26],[1047,.66,.3],[784,1,.25],[1047,1.2,.5]]);}
 function ensureAudio(){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;if(!audioCtx)audioCtx=new C();if(audioCtx.state==='suspended')audioCtx.resume();return audioCtx;}catch{return null;}}
 function tone(freq,d=.08){if(!soundEnabled)return;const ctx=ensureAudio();if(!ctx)return;const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=freq;o.type='triangle';g.gain.setValueAtTime(.06,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+d);o.connect(g).connect(ctx.destination);o.start();o.stop(ctx.currentTime+d);}
+
+// Drawing data contains the six public graphs only, never the per-student answer key.
+function refreshGraphView(){
+  if(!round.roundId||roundOptions.length!==6)return;
+  const f=$('gameField').getBoundingClientRect();if(!f.width||!f.height)return;
+  const rects=Array.from($('graphGrid').children).map(card=>{const r=card.getBoundingClientRect();return {id:card.dataset.optionId,left:(r.left-f.left)/f.width,top:(r.top-f.top)/f.height,right:(r.right-f.left)/f.width,bottom:(r.bottom-f.top)/f.height};});
+  graphView={roundId:round.roundId,options:roundOptions.map(({id,type,a,b,h,k})=>({id,type,a,b,h,k})),yRange:computeYRange(roundOptions,round.functionType),rects,style:normalizeGraphStyle(graphStyle,visualTheme),theme:visualTheme};
+}
+function queueGraphSync(){
+  clearTimeout(graphSyncTimer);
+  graphSyncTimer=setTimeout(async()=>{
+    refreshGraphView();
+    if(!roomCode||!graphView||graphView.roundId!==round.roundId)return;
+    // A resize can change hit rectangles without changing the round clock.
+    try{await update(ref(db,`gameState/${roomCode}`),{graphView});}catch(e){reportError(e);}
+  },120);
+}
+const GRAPH_FIELDS=[['axisX','X 軸'],['axisY','Y 軸'],['gridX','水平格線'],['gridY','垂直格線'],['label','刻度文字']];
+function renderGraphSettings(){
+  if(!$('graphStyleInputs'))return;
+  const values=normalizeGraphStyle(graphStyle,visualTheme);
+  for(const [key] of GRAPH_FIELDS){const color=$(`${key}Color`),size=$(`${key==='label'?'labelSize':key+'Width'}`);if(color)color.value=values[key+'Color'];if(size){size.value=values[size.id];size.nextElementSibling.textContent=values[size.id];}}
+}
+function bindGraphSettings(){
+  $('graphStyleInputs').innerHTML=GRAPH_FIELDS.map(([key,name])=>{
+    const size=key==='label'?'labelSize':key+'Width';
+    return `<div class="trig-style-row"><label for="${key}Color">${name}</label><input id="${key}Color" type="color" aria-label="${name}顏色"><input id="${size}" type="range" aria-label="${name}${key==='label'?'字型大小':'粗細'}" min="${key==='label'?8:.5}" max="${key==='label'?20:6}" step="${key==='label'?1:.1}"><output></output></div>`;
+  }).join('');
+  $('graphStyleInputs').addEventListener('input',e=>{
+    if(!e.target.id)return;
+    graphStyle={...graphStyle,[e.target.id]:e.target.type==='color'?e.target.value:Number(e.target.value)};
+    try{localStorage.setItem('trigGraphStyle',JSON.stringify(graphStyle));}catch{}
+    renderGraphSettings();if(roundOptions.length)renderGraphs(roundOptions,round.functionType);
+  });
+  $('resetGraphStyleBtn').addEventListener('click',()=>{graphStyle={};try{localStorage.removeItem('trigGraphStyle');}catch{}renderGraphSettings();if(roundOptions.length)renderGraphs(roundOptions,round.functionType);});
+  $('selectAllCheck').addEventListener('change',e=>setAllPlayersActive(e.target.checked));
+  renderGraphSettings();
+}
+function applySidebar(){
+  const stage=$('trigStage'),max=Math.max(210,Math.min(480,stage.clientWidth*.45));
+  const width=Math.round(clamp(sidebarWidth,210,max));
+  stage.style.setProperty('--trig-sidebar-width',`${width}px`);stage.classList.toggle('sidebar-left',sidebarSide==='left');
+  $('dockSidebarBtn').textContent=sidebarSide==='left'?'移到右側':'移到左側';
+  $('sidebarSplitter').setAttribute('aria-valuenow',width);$('sidebarSplitter').setAttribute('aria-valuemax',Math.floor(max));
+  try{localStorage.setItem('trigSidebar',JSON.stringify({width:sidebarWidth,side:sidebarSide}));}catch{}
+  queueGraphSync();
+}
+function bindSidebar(){
+  try{const saved=JSON.parse(localStorage.getItem('trigSidebar')||'{}');sidebarWidth=clamp(Number(saved.width)||300,210,480);sidebarSide=saved.side==='left'?'left':'right';}catch{}
+  const splitter=$('sidebarSplitter'),stage=$('trigStage');let resizing=false;
+  splitter.addEventListener('pointerdown',e=>{resizing=true;splitter.setPointerCapture(e.pointerId);e.preventDefault();});
+  splitter.addEventListener('pointermove',e=>{if(!resizing)return;const r=stage.getBoundingClientRect();sidebarWidth=clamp(sidebarSide==='left'?e.clientX-r.left:r.right-e.clientX,210,Math.min(480,r.width*.45));applySidebar();});
+  for(const type of ['pointerup','pointercancel','lostpointercapture'])splitter.addEventListener(type,()=>{resizing=false;});
+  splitter.addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();sidebarWidth=e.key==='Home'?210:e.key==='End'?480:sidebarWidth+(e.key==='ArrowLeft'?-15:15)*(sidebarSide==='left'?1:-1);sidebarWidth=clamp(sidebarWidth,210,480);applySidebar();});
+  $('dockSidebarBtn').addEventListener('click',()=>{sidebarSide=sidebarSide==='left'?'right':'left';applySidebar();});
+  const handle=$('sidebarDrag');let dragStart=null;
+  handle.addEventListener('pointerdown',e=>{dragStart=e.clientX;handle.setPointerCapture(e.pointerId);e.preventDefault();});
+  handle.addEventListener('pointerup',e=>{if(dragStart!==null&&Math.abs(e.clientX-dragStart)>40){const r=stage.getBoundingClientRect();sidebarSide=e.clientX<r.left+r.width/2?'left':'right';applySidebar();}dragStart=null;});
+  handle.addEventListener('pointercancel',()=>{dragStart=null;});
+  new ResizeObserver(queueGraphSync).observe($('gameField'));
+  window.addEventListener('resize',applySidebar);document.addEventListener('fullscreenchange',applySidebar);
+  applySidebar();
+}
 
 boot();

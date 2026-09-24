@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <title>三角函數圖形射擊｜學生控制器</title>
   <link rel="stylesheet" href="./styles.css">
-  <link rel="stylesheet" href="./trig.css?v=3.2">
+  <link rel="stylesheet" href="./trig.css?v=3.3">
 </head>
 <body class="trig-join-page">
   <main class="controller-shell trig-controller-shell">
@@ -38,6 +38,13 @@
           <div id="formulaText" class="trig-formula">等待老師開始</div>
           <small id="questionHint">題目會顯示在這裡。</small>
         </div>
+
+        <section class="trig-preview-panel" aria-label="瞄準圖形預覽">
+          <div class="trig-preview-head"><b id="previewTitle">瞄準圖形預覽</b><button id="resetPreviewBtn" class="btn ghost tiny-btn">重設</button></div>
+          <div id="graphPreviewViewport" class="trig-preview-viewport"><div id="graphPreviewCanvas"></div><span id="previewEmpty">移動準星到 A～F 圖，即可在此放大查看。</span></div>
+          <label class="trig-preview-zoom"><span>50%</span><input id="previewZoom" aria-label="圖形預覽縮放比例" type="range" min="50" max="200" step="1" value="100"><output id="previewZoomValue">100%</output><span>200%</span></label>
+          <small>雙指縮放、單指移動圖形；下方瞄準區控制準星。</small>
+        </section>
 
         <div class="grip-mode-bar">
           <div class="grip-mode-group">
@@ -98,6 +105,6 @@
     </div>
   </div>
 
-  <script type="module" src="./trig-join.js?v=3.2"></script>
+  <script type="module" src="./trig-join.js?v=3.3"></script>
 </body>
 </html>
