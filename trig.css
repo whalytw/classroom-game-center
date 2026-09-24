@@ -225,3 +225,23 @@
   .trig-preview-panel { position:sticky; top:calc(var(--trig-question-height,135px) + 16px); z-index:19; box-shadow:0 4px 14px #17203318; }
   .trig-join-page .aim-pad { height:190px; min-height:190px; }
 }
+
+/* v3.3.1：深色按鈕對比與左右手一致的瞄準空間 */
+.trig-stage.theme-tech .btn.ghost {
+  color:#eaf8ff;
+  background:#102c40;
+  border-color:#467b95;
+}
+.trig-stage.theme-tech .btn.ghost:hover:not(:disabled) { background:#183e55; }
+.trig-stage.theme-tech .btn.ghost:focus-visible { outline:2px solid #67e8f9; outline-offset:2px; }
+.trig-join-page .controller-core.landscape-layout {
+  grid-template-columns:minmax(0,7fr) minmax(0,3fr);
+  grid-template-areas:"aim fire";
+}
+.trig-join-page .controller-core.landscape-layout.fire-left {
+  grid-template-columns:minmax(0,3fr) minmax(0,7fr);
+  grid-template-areas:"fire aim";
+}
+.trig-join-page .controller-core.landscape-layout .fire-btn { min-width:0; padding:8px 4px; }
+.trig-join-page .controller-core.landscape-layout .fire-btn strong { font-size:1rem; }
+.trig-join-page .controller-core.landscape-layout .fire-btn span { font-size:clamp(.78rem,2vw,1.05rem); letter-spacing:0; overflow-wrap:anywhere; }
